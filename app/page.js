@@ -86,7 +86,8 @@ export default function Home() {
         code: item.code,
         city: item.city,
         color: colors[idx % colors.length],
-        holder_name: item.holder_name
+        holder_name: item.holder_name,
+        image_url: item.image_url
       }));
       
       setGalleryItems(items);
@@ -256,6 +257,17 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="bg-gradient-to-br from-purple-950/30 to-cyan-950/30 border border-purple-900/50 rounded-lg p-8">
+                  {/* Photo Display */}
+                  {searchResult.image && (
+                    <div className="mb-6">
+                      <img 
+                        src={searchResult.image} 
+                        alt={`ColorOut™ ${searchResult.code}`}
+                        className="w-full h-96 object-cover rounded-lg"
+                      />
+                    </div>
+                  )}
+                  
                   <div className="flex items-start justify-between mb-6">
                     <div>
                       <div className="text-sm text-gray-500 uppercase tracking-wider mb-1">Authenticated</div>
@@ -316,37 +328,50 @@ export default function Home() {
                 key={item.id}
                 className="group relative aspect-square bg-gradient-to-br from-gray-900 to-black border border-gray-800 rounded-xl overflow-hidden hover:border-purple-700 transition-all duration-300 cursor-pointer"
               >
-                {/* Placeholder for actual image */}
-                <div className={`absolute inset-0 bg-gradient-to-br ${item.color} opacity-20 group-hover:opacity-30 transition-opacity`} />
-                
-                {/* Pattern overlay */}
-                <div className="absolute inset-0 opacity-10">
-                  <div className="absolute inset-0" style={{
-                    backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)',
-                    backgroundSize: '20px 20px'
-                  }} />
-                </div>
+                {/* Real image or gradient placeholder */}
+                {item.image_url ? (
+                  <img 
+                    src={item.image_url} 
+                    alt={`ColorOut™ ${item.code}`}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                ) : (
+                  <>
+                    <div className={`absolute inset-0 bg-gradient-to-br ${item.color} opacity-20 group-hover:opacity-30 transition-opacity`} />
+                    <div className="absolute inset-0 opacity-10">
+                      <div className="absolute inset-0" style={{
+                        backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)',
+                        backgroundSize: '20px 20px'
+                      }} />
+                    </div>
+                  </>
+                )}
+
+                {/* Dark overlay on hover */}
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity" />
 
                 {/* Content overlay */}
-                <div className="absolute inset-0 flex flex-col justify-end p-6 bg-gradient-to-t from-black via-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute inset-0 flex flex-col justify-end p-6 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                   <div className="space-y-2">
-                    <div className="text-sm font-mono text-gray-400">{item.code}</div>
-                    <div className="flex items-center gap-2 text-gray-300">
+                    <div className="text-sm font-mono text-white font-semibold">{item.code}</div>
+                    <div className="flex items-center gap-2 text-gray-200">
                       <MapPin className="w-4 h-4" />
                       <span className="text-sm">{item.city}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Center text when not hovering */}
-                <div className="absolute inset-0 flex items-center justify-center group-hover:opacity-0 transition-opacity">
-                  <div className="text-center">
-                    <div className={`text-6xl font-light bg-gradient-to-br ${item.color} text-transparent bg-clip-text mb-2`}>
-                      {(idx + 1).toString().padStart(2, '0')}
+                {/* Center text when not hovering (only for items without images) */}
+                {!item.image_url && (
+                  <div className="absolute inset-0 flex items-center justify-center group-hover:opacity-0 transition-opacity">
+                    <div className="text-center">
+                      <div className={`text-6xl font-light bg-gradient-to-br ${item.color} text-transparent bg-clip-text mb-2`}>
+                        {(idx + 1).toString().padStart(2, '0')}
+                      </div>
+                      <div className="text-xs text-gray-500 uppercase tracking-wider">{item.city}</div>
                     </div>
-                    <div className="text-xs text-gray-500 uppercase tracking-wider">{item.city}</div>
                   </div>
-                </div>
+                )}
               </div>
             ))}
           </div>
