@@ -148,10 +148,34 @@ export default function AdminPanel() {
         throw new Error('Failed to update request');
       }
 
+      // 3. Send email to holder
+      try {
+        const emailResponse = await fetch('/api/send-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            email: request.email,
+            holderName: request.holder_name,
+            passportCode: newCode
+          })
+        });
+
+        const emailResult = await emailResponse.json();
+        
+        if (emailResult.success) {
+          alert(`✅ Approved & Email Sent!\n\nCode: ${newCode}\nEmail sent to: ${request.email}\n\nNext steps:\n1. Upload photo to Storage\n2. Update passport with image_url`);
+        } else {
+          alert(`✅ Passport Approved: ${newCode}\n⚠️ Email failed to send.\n\nPlease send manually to: ${request.email}`);
+        }
+      } catch (emailError) {
+        console.error('Email error:', emailError);
+        alert(`✅ Passport Approved: ${newCode}\n⚠️ Email error occurred.\n\nPlease send manually to: ${request.email}`);
+      }
+
       // Refresh the list
       await fetchRequests();
-      
-      alert(`✅ Approved! Code: ${newCode}\n\nNext steps:\n1. Upload photo to Storage\n2. Update passport with image_url\n3. Send email to: ${request.email}`);
     } catch (error) {
       console.error('Error approving request:', error);
       alert('Error approving request. Please try again.');
