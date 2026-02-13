@@ -32,17 +32,27 @@ export default function Home() {
   const fetchTotalCount = async () => {
     try {
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/passports?select=count`,
+        `${SUPABASE_URL}/rest/v1/passports?select=*`,
         {
           headers: {
             'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Prefer': 'count=exact'
           }
         }
       );
-      const data = await response.json();
-      if (data && data.length > 0) {
-        setTotalPassports(data.length);
+      
+      // Get count from response header
+      const count = response.headers.get('content-range');
+      if (count) {
+        const total = parseInt(count.split('/')[1]);
+        setTotalPassports(total);
+      } else {
+        // Fallback: count array length
+        const data = await response.json();
+        if (data && Array.isArray(data)) {
+          setTotalPassports(data.length);
+        }
       }
     } catch (error) {
       console.error('Error fetching count:', error);
