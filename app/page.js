@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Search, Shield, Users, Sparkles, Calendar, MapPin, ExternalLink } from 'lucide-react';
+import ClaimPassportForm from './ClaimPassportForm';
 
 // Supabase Configuration
 const SUPABASE_URL = 'https://ypwgutlxjdpszlkwzyyu.supabase.co';
@@ -14,6 +15,7 @@ export default function Home() {
   const [gradientPosition, setGradientPosition] = useState(0);
   const [totalPassports, setTotalPassports] = useState(70);
   const [galleryItems, setGalleryItems] = useState([]);
+  const [showClaimForm, setShowClaimForm] = useState(false);
 
   // Animated gradient effect
   useEffect(() => {
@@ -425,13 +427,21 @@ export default function Home() {
           <h3 className="text-3xl font-light mb-4">Have a ColorOut™ tattoo?</h3>
           <p className="text-gray-400 mb-8 max-w-2xl mx-auto">
             If you've received a ColorOut™ tattoo and don't have your passport yet, 
-            reach out to claim your certificate of authenticity and join the community.
+            request your certificate of authenticity and join the community.
           </p>
-          <button className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 px-8 py-4 rounded-lg font-medium transition-all text-lg">
+          <button 
+            onClick={() => setShowClaimForm(true)}
+            className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 px-8 py-4 rounded-lg font-medium transition-all text-lg"
+          >
             Claim Your Passport
           </button>
         </div>
       </div>
+
+      {/* Claim Passport Form Modal */}
+      {showClaimForm && (
+        <ClaimPassportForm onClose={() => setShowClaimForm(false)} />
+      )}
 
       {/* Footer */}
       <div className="border-t border-gray-900 py-12">
