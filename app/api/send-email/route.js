@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request) {
   try {
-    const { email, holderName, passportCode } = await request.json();
+    const { email, holderName, passportCode, walletPassUrl } = await request.json();
 
     const RESEND_API_KEY = 're_DvwcquNd_HhWWqMAPykBnjaJSy9orsFDd';
 
@@ -67,6 +67,17 @@ export async function POST(request) {
       font-weight: 500;
       margin: 20px 0;
     }
+    .wallet-button {
+      display: inline-block;
+      background: #000;
+      border: 2px solid #8b5cf6;
+      color: #fff;
+      text-decoration: none;
+      padding: 16px 32px;
+      border-radius: 8px;
+      font-weight: 500;
+      margin: 10px;
+    }
     .footer {
       text-align: center;
       padding: 30px;
@@ -100,6 +111,16 @@ export async function POST(request) {
         <div class="code">${passportCode}</div>
       </div>
       
+      ${walletPassUrl ? `
+      <div style="text-align: center; margin: 30px 0; padding: 30px; background: rgba(139, 92, 246, 0.1); border-radius: 12px;">
+        <h3 style="margin: 0 0 15px 0; font-weight: 300;">Add to Your Wallet</h3>
+        <p style="font-size: 14px; margin-bottom: 20px;">Save your ColorOut™ Passport to Apple Wallet or Google Wallet</p>
+        <a href="${walletPassUrl}" class="wallet-button">
+          📱 Add to Wallet
+        </a>
+      </div>
+      ` : ''}
+      
       <p>Your ColorOut™ tattoo is now permanently documented and authenticated. Use your passport code to:</p>
       
       <ul style="color: #ccc; line-height: 1.8;">
@@ -118,8 +139,8 @@ export async function POST(request) {
       <p style="margin-top: 30px; padding-top: 30px; border-top: 1px solid #333;">
         <strong>Next Steps:</strong><br>
         1. Save this email for your records<br>
-        2. Visit the link above to see your verified passport<br>
-        3. Share your ColorOut™ story on social media (tag @patrickcat6)
+        ${walletPassUrl ? '2. Add your passport to your phone wallet<br>3.' : '2.'} Visit the link above to see your verified passport<br>
+        ${walletPassUrl ? '4.' : '3.'} Share your ColorOut™ story on social media (tag @patrickcat6)
       </p>
     </div>
     
