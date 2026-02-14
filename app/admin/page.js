@@ -125,7 +125,36 @@ export default function AdminPanel() {
         throw new Error('Failed to create passport');
       }
 
-      // 2. Update request status
+      // 2. Create Wallet Pass
+      let walletPassUrl = null;
+      try {
+        const walletResponse = await fetch('/api/create-wallet-pass', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            holderName: request.holder_name,
+            email: request.email,
+            passportCode: newCode,
+            city: request.city,
+            date: request.tattoo_date
+          })
+        });
+
+        const walletResult = await walletResponse.json();
+        
+        if (walletResult.success) {
+          walletPassUrl = walletResult.passUrl || walletResult.appleWalletUrl;
+          console.log('✅ Wallet pass created:', walletPassUrl);
+        } else {
+          console.error('⚠️ Wallet pass creation failed:', walletResult);
+        }
+      } catch (walletError) {
+        console.error('Wallet pass error:', walletError);
+      }
+
+      // 3. Update request status
       const updateResponse = await fetch(
         `${SUPABASE_URL}/rest/v1/passport_requests?id=eq.${request.id}`,
         {
@@ -148,7 +177,7 @@ export default function AdminPanel() {
         throw new Error('Failed to update request');
       }
 
-      // 3. Send email to holder
+      // 4. Send email with wallet pass
       try {
         const emailResponse = await fetch('/api/send-email', {
           method: 'POST',
@@ -158,20 +187,22 @@ export default function AdminPanel() {
           body: JSON.stringify({
             email: request.email,
             holderName: request.holder_name,
-            passportCode: newCode
+            passportCode: newCode,
+            walletPassUrl: walletPassUrl
           })
         });
 
         const emailResult = await emailResponse.json();
         
         if (emailResult.success) {
-          alert(`✅ Approved & Email Sent!\n\nCode: ${newCode}\nEmail sent to: ${request.email}\n\nNext steps:\n1. Upload photo to Storage\n2. Update passport with image_url`);
+          const walletStatus = walletPassUrl ? '✅ with Wallet Pass' : '⚠️ without Wallet Pass';
+          alert(`✅ Approved & Email Sent ${walletStatus}!\n\nCode: ${newCode}\nEmail sent to: ${request.email}\n\nNext steps:\n1. Upload photo to Storage\n2. Update passport with image_url`);
         } else {
-          alert(`✅ Passport Approved: ${newCode}\n⚠️ Email failed to send.\n\nPlease send manually to: ${request.email}`);
+          alert(`✅ Passport & Wallet Pass Created: ${newCode}\n⚠️ Email failed to send.\n\nWallet Pass URL: ${walletPassUrl || 'Not created'}\n\nPlease send manually to: ${request.email}`);
         }
       } catch (emailError) {
         console.error('Email error:', emailError);
-        alert(`✅ Passport Approved: ${newCode}\n⚠️ Email error occurred.\n\nPlease send manually to: ${request.email}`);
+        alert(`✅ Passport & Wallet Pass Created: ${newCode}\n⚠️ Email error occurred.\n\nWallet Pass URL: ${walletPassUrl || 'Not created'}\n\nPlease send manually to: ${request.email}`);
       }
 
       // Refresh the list
