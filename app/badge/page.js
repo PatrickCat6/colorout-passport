@@ -163,7 +163,7 @@ function BadgeContent() {
               ColorOut™
             </span>
           </h1>
-          <p className="text-gray-400">Instagram Badge</p>
+          <p className="text-gray-400 font-bold">Instagram Badge</p>
         </div>
 
         {badgeSvg && (
@@ -190,7 +190,7 @@ function BadgeContent() {
 
               <div className="text-center text-gray-500 text-sm mt-8">
                 <p>Share your ColorOut™ passport on Instagram</p>
-                <p className="mt-2">Tag <span className="text-purple-500">@patrickcat6</span></p>
+                <p className="mt-2">Tag <span className="text-purple-500">@patrickcat_art</span></p>
               </div>
             </div>
           </div>
