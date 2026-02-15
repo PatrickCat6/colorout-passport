@@ -19,20 +19,12 @@ function BadgeContent() {
 
   const fetchPassport = async () => {
     try {
-      const response = await fetch(
-        `https://ypwgutlxjdpszlkwzyyu.supabase.co/rest/v1/passports?code=eq.${code}&select=*`,
-        {
-          headers: {
-            'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkzNDI0MDAsImV4cCI6MjA1NDkxODQwMH0.ps8L1LCoabe9ijNe3r2ZoJScdE7xqVBXYJmZJtct-ww',
-            'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkzNDI0MDAsImV4cCI6MjA1NDkxODQwMH0.ps8L1LCoabe9ijNe3r2ZoJScdE7xqVBXYJmZJtct-ww'
-          }
-        }
-      );
+      const response = await fetch(`/api/get-passport?code=${code}`);
+      const result = await response.json();
 
-      const data = await response.json();
-      if (data && data.length > 0) {
-        setPassport(data[0]);
-        generateBadge(data[0]);
+      if (result.success && result.passport) {
+        setPassport(result.passport);
+        generateBadge(result.passport);
       }
     } catch (error) {
       console.error('Error fetching passport:', error);
