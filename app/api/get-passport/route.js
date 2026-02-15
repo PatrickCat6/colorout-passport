@@ -15,7 +15,14 @@ export async function GET(request) {
     }
 
     const SUPABASE_URL = 'https://ypwgutlxjdpszlkwzyyu.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkzNDI0MDAsImV4cCI6MjA1NDkxODQwMH0.ps8L1LCoabe9ijNe3r2ZoJScdE7xqVBXYJmZJtct-ww';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjQ1MjgsImV4cCI6MjA4NjUwMDUyOH0.yV4j8tZ6-eNmLKS7NlxfPtUaQ1-qn33yUaKtln-KMJo';
+```
+
+**Commit:** "Update Supabase anon key"
+
+Una vez deployado, prueba:
+```
+https://coloroutpassport.com/api/get-passport?code=CO-2026-0071
 
     const url = `${SUPABASE_URL}/rest/v1/passports?code=eq.${code}&select=*`;
     console.log('Fetching URL:', url);
