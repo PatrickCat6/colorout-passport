@@ -26,19 +26,17 @@ export async function POST(request) {
       border-radius: 16px;
       overflow: hidden;
     }
-    .header {
-      background: linear-gradient(135deg, #8b5cf6, #06b6d4);
-      padding: 40px;
-      text-align: center;
-    }
-    .header h1 {
-      margin: 0;
-      font-size: 48px;
-      font-weight: 300;
-      background: linear-gradient(to right, #fff, #e0e0e0);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
+   .header {
+  background: linear-gradient(135deg, #FF0080, #FF0000, #FF7F00, #FFFF00, #00FF00, #0000FF, #8B00FF);
+  padding: 40px;
+  text-align: center;
+}
+   .header h1 {
+  margin: 0;
+  font-size: 48px;
+  font-weight: bold;
+  color: #FFFFFF;
+}
     .content {
       padding: 40px;
     }
