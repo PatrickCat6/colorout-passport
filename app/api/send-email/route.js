@@ -121,6 +121,14 @@ export async function POST(request) {
       </div>
       ` : ''}
       
+      <div style="text-align: center; margin: 30px 0; padding: 30px; background: linear-gradient(to right, rgba(139, 92, 246, 0.1), rgba(6, 182, 212, 0.1)); border-radius: 12px; border: 1px solid rgba(139, 92, 246, 0.3);">
+        <h3 style="margin: 0 0 15px 0; font-weight: 300;">📸 Instagram Badge</h3>
+        <p style="font-size: 14px; margin-bottom: 20px;">Download your custom ColorOut™ badge and share on Instagram Stories</p>
+        <a href="https://coloroutpassport.com/badge?code=${passportCode}" class="wallet-button" style="background: linear-gradient(to right, #8b5cf6, #06b6d4); border: none;">
+          Get Your Badge
+        </a>
+      </div>
+      
       <p>Your ColorOut™ tattoo is now permanently documented and authenticated. Use your passport code to:</p>
       
       <ul style="color: #ccc; line-height: 1.8;">
