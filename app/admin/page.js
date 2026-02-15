@@ -125,8 +125,11 @@ export default function AdminPanel() {
         throw new Error('Failed to create passport');
       }
 
-      // 2. Create Wallet Pass
+      // 2. Create Wallet Pass (TEMPORARILY DISABLED - PassKit template in Draft mode)
       let walletPassUrl = null;
+      console.log('⏸️ Wallet pass creation skipped (template in draft mode)');
+      // Uncomment when PassKit template is published:
+      /*
       try {
         const walletResponse = await fetch('/api/create-wallet-pass', {
           method: 'POST',
@@ -153,6 +156,7 @@ export default function AdminPanel() {
       } catch (walletError) {
         console.error('Wallet pass error:', walletError);
       }
+      */
 
       // 3. Update request status
       const updateResponse = await fetch(
