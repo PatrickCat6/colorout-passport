@@ -158,12 +158,12 @@ function BadgeContent() {
           <p className="text-gray-400 font-bold">Instagram Badge</p>
         </div>
 
-        {badgeSvg && (
-          <div className="max-w-md mx-auto">
-            <div 
-              className="bg-gray-900 rounded-lg overflow-hidden shadow-2xl mb-8"
-              dangerouslySetInnerHTML={{ __html: badgeSvg }}
-            />
+      {badgeSvg && (
+  <div className="w-full max-w-md mx-auto px-4">
+    <div 
+      className="w-full aspect-[9/16] bg-black rounded-lg overflow-hidden shadow-2xl mb-8"
+      dangerouslySetInnerHTML={{ __html: badgeSvg }}
+    />
 
             <div className="space-y-4">
               <button
