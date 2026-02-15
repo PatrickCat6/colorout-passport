@@ -36,17 +36,14 @@ export async function POST(request) {
   <!-- Black background -->
   <rect width="1080" height="1920" fill="#000000"/>
   
-  <!-- Gradient overlay -->
-  <rect width="1080" height="1920" fill="url(#rainbowBg)"/>
-  
   <!-- Top section with rainbow gradient ColorOut -->
   <text x="540" y="400" font-family="Arial, sans-serif" font-size="120" font-weight="bold" fill="url(#rainbowText)" text-anchor="middle">
     ColorOut™
   </text>
   
-  <text x="540" y="500" font-family="Arial, sans-serif" font-size="40" fill="#E5E5E5" text-anchor="middle">
-    Certificate of Authenticity
-  </text>
+  <text x="540" y="510" font-family="Arial, sans-serif" font-size="48" font-weight="500" fill="#FFFFFF" text-anchor="middle">
+  Certificate of Authenticity
+</text>
   
   <!-- Divider line -->
   <line x1="140" y1="600" x2="940" y2="600" stroke="#333333" stroke-width="2"/>
