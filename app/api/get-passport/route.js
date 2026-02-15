@@ -1,47 +1,36 @@
 import { createClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server'
 
-export default async function handler(req, res) {
-  // Solo permitir GET requests
-  if (req.method !== 'GET') {
-    return res.status(405).json({ 
-      success: false, 
-      error: 'Method not allowed' 
-    })
-  }
+export const dynamic = 'force-dynamic'
 
-  const { code } = req.query
-  
-  // Validar que el código existe
-  if (!code) {
-    return res.status(400).json({ 
-      success: false, 
-      error: 'Code parameter is required. Usage: /api/get-passport?code=CO-2026-0071' 
-    })
-  }
-
-  // Validar formato del código (opcional pero recomendado)
-  const codePattern = /^CO-(LEGACY-|20\d{2}-)\d{4}$/
-  if (!codePattern.test(code)) {
-    return res.status(400).json({ 
-      success: false, 
-      error: 'Invalid code format. Expected format: CO-2026-0071 or CO-LEGACY-0011' 
-    })
-  }
-
+export async function GET(request) {
   try {
-    // Crear cliente de Supabase con service role
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      }
-    )
+    const { searchParams } = new URL(request.url)
+    const code = searchParams.get('code')
 
-    // Buscar el passport en la base de datos
+    if (!code) {
+      return NextResponse.json(
+        { success: false, error: 'Code parameter required' },
+        { status: 400 }
+      )
+    }
+
+    // Usar las credenciales desde las variables de entorno
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Missing Supabase credentials')
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500 }
+      )
+    }
+
+    // Crear cliente de Supabase
+    const supabase = createClient(supabaseUrl, supabaseKey)
+
+    // Buscar el passport
     const { data, error } = await supabase
       .from('passports')
       .select('code, holder_name, date, city, country, image_url, created_at')
@@ -50,22 +39,22 @@ export default async function handler(req, res) {
 
     if (error) {
       console.error('Supabase error:', error)
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Database error: ' + error.message 
-      })
+      return NextResponse.json(
+        { success: false, error: 'Database error: ' + error.message },
+        { status: 500 }
+      )
     }
 
     if (!data) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Passport not found' 
-      })
+      return NextResponse.json(
+        { success: false, error: 'Passport not found' },
+        { status: 404 }
+      )
     }
 
-    // Retornar el passport encontrado
-    return res.status(200).json({ 
-      success: true, 
+    // Retornar el passport
+    return NextResponse.json({
+      success: true,
       passport: {
         code: data.code,
         holder_name: data.holder_name,
@@ -79,9 +68,9 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Unexpected error:', error)
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    })
+    return NextResponse.json(
+      { success: false, error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }
