@@ -6,7 +6,7 @@ export async function POST(request) {
 
     // Create SVG badge (Instagram Story size: 1080x1920)
     const svg = `
-<svg width="1080" height="1920" xmlns="http://www.w3.org/2000/svg">
+<svg width="1080" height="1920" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMin meet" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <!-- Rainbow gradient for background -->
     <linearGradient id="rainbowBg" x1="0%" y1="0%" x2="100%" y2="100%">
