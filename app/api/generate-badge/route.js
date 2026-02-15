@@ -15,7 +15,7 @@ export async function POST(request) {
       <stop offset="100%" style="stop-color:#8B5CF6;stop-opacity:0.3" />
     </linearGradient>
     
-    <!-- Rainbow gradient for text -->
+    <!-- Rainbow gradient for ColorOut text -->
     <linearGradient id="rainbowText" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" style="stop-color:#FF0000" />
       <stop offset="16.666%" style="stop-color:#FF7F00" />
@@ -39,8 +39,8 @@ export async function POST(request) {
   <!-- Gradient overlay -->
   <rect width="1080" height="1920" fill="url(#rainbowBg)"/>
   
-  <!-- Top section -->
-  <text x="540" y="400" font-family="Arial, sans-serif" font-size="120" font-weight="300" fill="url(#rainbowText)" text-anchor="middle">
+  <!-- Top section with rainbow gradient ColorOut -->
+  <text x="540" y="400" font-family="Arial, sans-serif" font-size="120" font-weight="bold" fill="url(#rainbowText)" text-anchor="middle">
     ColorOut™
   </text>
   
@@ -58,12 +58,12 @@ export async function POST(request) {
     PASSPORT CODE
   </text>
   
-  <text x="540" y="920" font-family="Courier New, monospace" font-size="64" font-weight="300" fill="#FFFFFF" text-anchor="middle">
+  <text x="540" y="920" font-family="Courier New, monospace" font-size="64" font-weight="bold" fill="#FFFFFF" text-anchor="middle">
     ${passportCode}
   </text>
   
   <!-- Holder info -->
-  <text x="540" y="1150" font-family="Arial, sans-serif" font-size="48" font-weight="300" fill="#FFFFFF" text-anchor="middle">
+  <text x="540" y="1150" font-family="Arial, sans-serif" font-size="48" font-weight="bold" fill="#FFFFFF" text-anchor="middle">
     ${holderName}
   </text>
   
