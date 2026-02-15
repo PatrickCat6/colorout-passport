@@ -161,7 +161,7 @@ export async function POST(request) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'ColorOut Passport <passport@coloroutpassport.com>',
+        from: 'ColorOut Passport <onboarding@resend.dev>',
         to: [email],
         subject: `🎨 Your ColorOut™ Passport is Ready! (${passportCode})`,
         html: emailHtml
