@@ -9,12 +9,22 @@ function BadgeContent() {
   const [passport, setPassport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [badgeSvg, setBadgeSvg] = useState('');
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
   const canvasRef = useRef(null);
 
   useEffect(() => {
     if (code) {
       fetchPassport();
     }
+
+    // Listen for PWA install prompt
+    const handler = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    
+    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, [code]);
 
   const fetchPassport = async () => {
@@ -120,6 +130,26 @@ function BadgeContent() {
     img.src = url;
   };
 
+  const addToHomeScreen = () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult.outcome === 'accepted') {
+          console.log('User added to home screen');
+        }
+        setDeferredPrompt(null);
+      });
+    } else {
+      // Show manual instructions
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        alert('To add to home screen:\n\n1. Tap the Share button\n2. Scroll down and tap "Add to Home Screen"\n3. Tap "Add"');
+      } else {
+        alert('To add to home screen:\n\n1. Tap the menu (⋮)\n2. Tap "Add to Home Screen"\n3. Tap "Add"');
+      }
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -158,21 +188,21 @@ function BadgeContent() {
           <p className="text-gray-400 font-bold">Instagram Badge</p>
         </div>
 
-  {badgeSvg && (
-  <div className="w-full max-w-md mx-auto px-4">
-    <div 
-      className="w-full bg-black rounded-lg overflow-hidden shadow-2xl mb-8"
-      style={{ aspectRatio: '9/16' }}
-    >
-      <div 
-        className="w-full h-full"
-        style={{ 
-          transform: 'scale(1)',
-          transformOrigin: 'top center'
-        }}
-        dangerouslySetInnerHTML={{ __html: badgeSvg }}
-      />
-    </div>
+        {badgeSvg && (
+          <div className="w-full max-w-md mx-auto px-4">
+            <div 
+              className="w-full bg-black rounded-lg overflow-hidden shadow-2xl mb-8"
+              style={{ aspectRatio: '9/16' }}
+            >
+              <div 
+                className="w-full h-full"
+                style={{ 
+                  transform: 'scale(1)',
+                  transformOrigin: 'top center'
+                }}
+                dangerouslySetInnerHTML={{ __html: badgeSvg }}
+              />
+            </div>
 
             <div className="space-y-4">
               <button
@@ -187,6 +217,13 @@ function BadgeContent() {
                 className="w-full border-2 border-purple-600 text-white py-4 px-6 rounded-lg font-medium hover:bg-purple-600/10 transition"
               >
                 💾 Download Badge
+              </button>
+
+              <button
+                onClick={addToHomeScreen}
+                className="w-full bg-gradient-to-r from-pink-600 via-purple-600 to-cyan-600 text-white py-4 px-6 rounded-lg font-medium hover:opacity-90 transition shadow-lg"
+              >
+                🏠 Add Passport to Home Screen
               </button>
 
               <div className="text-center text-gray-500 text-sm mt-8">
