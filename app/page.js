@@ -145,7 +145,6 @@ export default function Home() {
   0% { filter: brightness(1.1) contrast(1.1) hue-rotate(0deg); }
   100% { filter: brightness(1.1) contrast(1.1) hue-rotate(360deg); }
 }
-        }
       `}</style>
       
       {/* Hero Section */}
