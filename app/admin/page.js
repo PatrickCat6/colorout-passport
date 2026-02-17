@@ -16,7 +16,6 @@ export default function AdminPanel() {
   const [processingId, setProcessingId] = useState(null);
 
   useEffect(() => {
-    // Check if already authenticated in session
     const auth = sessionStorage.getItem('admin_auth');
     if (auth === 'true') {
       setIsAuthenticated(true);
@@ -65,7 +64,6 @@ export default function AdminPanel() {
 
   const generateNextCode = async () => {
     try {
-      // Get the latest passport to determine next number
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/passports?select=code&order=code.desc&limit=1`,
         {
@@ -87,11 +85,10 @@ export default function AdminPanel() {
         }
       }
       
-      // Fallback if no passports exist
-      return `CO-${new Date().getFullYear()}-0071`;
+      return `CO-${new Date().getFullYear()}-0001`;
     } catch (error) {
       console.error('Error generating code:', error);
-      return `CO-${new Date().getFullYear()}-0071`;
+      return `CO-${new Date().getFullYear()}-0001`;
     }
   };
 
@@ -99,8 +96,9 @@ export default function AdminPanel() {
     setProcessingId(request.id);
     try {
       const newCode = await generateNextCode();
+      console.log('Generated code:', newCode);
       
-      // 1. Create new passport
+      // 1. Create new passport with better error handling
       const createResponse = await fetch(
         `${SUPABASE_URL}/rest/v1/passports`,
         {
@@ -109,7 +107,7 @@ export default function AdminPanel() {
             'apikey': SUPABASE_ANON_KEY,
             'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
             'Content-Type': 'application/json',
-            'Prefer': 'return=minimal'
+            'Prefer': 'return=representation'
           },
           body: JSON.stringify({
             code: newCode,
@@ -122,43 +120,15 @@ export default function AdminPanel() {
       );
 
       if (!createResponse.ok) {
-        throw new Error('Failed to create passport');
+        const errorData = await createResponse.json();
+        console.error('Supabase error:', errorData);
+        throw new Error(`Failed to create passport: ${JSON.stringify(errorData)}`);
       }
 
-      // 2. Create Wallet Pass (TEMPORARILY DISABLED - PassKit template in Draft mode)
-      let walletPassUrl = null;
-      console.log('⏸️ Wallet pass creation skipped (template in draft mode)');
-      // Uncomment when PassKit template is published:
-      /*
-      try {
-        const walletResponse = await fetch('/api/create-wallet-pass', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            holderName: request.holder_name,
-            email: request.email,
-            passportCode: newCode,
-            city: request.city,
-            date: request.tattoo_date
-          })
-        });
+      const createdPassport = await createResponse.json();
+      console.log('Created passport:', createdPassport);
 
-        const walletResult = await walletResponse.json();
-        
-        if (walletResult.success) {
-          walletPassUrl = walletResult.passUrl || walletResult.appleWalletUrl;
-          console.log('✅ Wallet pass created:', walletPassUrl);
-        } else {
-          console.error('⚠️ Wallet pass creation failed:', walletResult);
-        }
-      } catch (walletError) {
-        console.error('Wallet pass error:', walletError);
-      }
-      */
-
-      // 3. Update request status
+      // 2. Update request status
       const updateResponse = await fetch(
         `${SUPABASE_URL}/rest/v1/passport_requests?id=eq.${request.id}`,
         {
@@ -181,7 +151,7 @@ export default function AdminPanel() {
         throw new Error('Failed to update request');
       }
 
-      // 4. Send email with wallet pass
+      // 3. Send email
       try {
         const emailResponse = await fetch('/api/send-email', {
           method: 'POST',
@@ -192,28 +162,26 @@ export default function AdminPanel() {
             email: request.email,
             holderName: request.holder_name,
             passportCode: newCode,
-            walletPassUrl: walletPassUrl
+            walletPassUrl: null
           })
         });
 
         const emailResult = await emailResponse.json();
         
         if (emailResult.success) {
-          const walletStatus = walletPassUrl ? '✅ with Wallet Pass' : '⚠️ without Wallet Pass';
-          alert(`✅ Approved & Email Sent ${walletStatus}!\n\nCode: ${newCode}\nEmail sent to: ${request.email}\n\nNext steps:\n1. Upload photo to Storage\n2. Update passport with image_url`);
+          alert(`✅ Approved & Email Sent!\n\nCode: ${newCode}\nEmail sent to: ${request.email}\n\nNext steps:\n1. Upload photo to Storage\n2. Update passport with image_url`);
         } else {
-          alert(`✅ Passport & Wallet Pass Created: ${newCode}\n⚠️ Email failed to send.\n\nWallet Pass URL: ${walletPassUrl || 'Not created'}\n\nPlease send manually to: ${request.email}`);
+          alert(`✅ Passport Created: ${newCode}\n⚠️ Email failed to send.\n\nPlease send manually to: ${request.email}`);
         }
       } catch (emailError) {
         console.error('Email error:', emailError);
-        alert(`✅ Passport & Wallet Pass Created: ${newCode}\n⚠️ Email error occurred.\n\nWallet Pass URL: ${walletPassUrl || 'Not created'}\n\nPlease send manually to: ${request.email}`);
+        alert(`✅ Passport Created: ${newCode}\n⚠️ Email error occurred.\n\nPlease send manually to: ${request.email}`);
       }
 
-      // Refresh the list
       await fetchRequests();
     } catch (error) {
       console.error('Error approving request:', error);
-      alert('Error approving request. Please try again.');
+      alert(`Error approving request: ${error.message}`);
     } finally {
       setProcessingId(null);
     }
@@ -250,7 +218,6 @@ export default function AdminPanel() {
     }
   };
 
-  // Login Screen
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center p-6">
@@ -294,11 +261,9 @@ export default function AdminPanel() {
     );
   }
 
-  // Admin Dashboard
   return (
     <div className="min-h-screen bg-black text-white p-6">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-4xl font-light mb-2">Admin Panel</h1>
@@ -323,7 +288,6 @@ export default function AdminPanel() {
           </div>
         </div>
 
-        {/* Stats */}
         <div className="grid md:grid-cols-3 gap-6 mb-8">
           <div className="bg-gradient-to-br from-gray-900 to-black border border-gray-800 rounded-xl p-6">
             <div className="flex items-center gap-3">
@@ -336,7 +300,6 @@ export default function AdminPanel() {
           </div>
         </div>
 
-        {/* Requests Table */}
         {loading ? (
           <div className="text-center py-12 text-gray-500">Loading requests...</div>
         ) : requests.length === 0 ? (
