@@ -12,9 +12,18 @@ export default function Home() {
   const [passportCode, setPassportCode] = useState('');
   const [searchResult, setSearchResult] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [gradientPosition, setGradientPosition] = useState(0);
   const [totalPassports, setTotalPassports] = useState(70);
   const [galleryItems, setGalleryItems] = useState([]);
   const [showClaimForm, setShowClaimForm] = useState(false);
+
+  // Animated gradient effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setGradientPosition(prev => (prev + 1) % 360);
+    }, 50);
+    return () => clearInterval(interval);
+  }, []);
 
   // Fetch total passports count on load
   useEffect(() => {
@@ -130,9 +139,9 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-black text-white">
       <style jsx>{`
-        @keyframes hueRotate {
-          0% { filter: brightness(1.1) contrast(1.1) hue-rotate(0deg); }
-          100% { filter: brightness(1.1) contrast(1.1) hue-rotate(360deg); }
+        @keyframes rainbow {
+          0% { background-position: 0% 50%; }
+          100% { background-position: 400% 50%; }
         }
       `}</style>
       
@@ -144,20 +153,25 @@ export default function Home() {
         <div className="relative max-w-6xl mx-auto px-6 py-24">
           <div className="text-center space-y-6">
             <div className="inline-block">
-              <div className="mb-2">
-                <img 
-                  src="/colorout-3d-logo.png" 
-                  alt="ColorOut™" 
-                  className="mx-auto"
+              <h1 className="text-7xl font-bold tracking-tight mb-2">
+                <span 
+                  className="text-transparent bg-clip-text"
                   style={{
-                    maxWidth: '600px',
-                    width: '100%',
-                    height: 'auto',
-                    animation: 'hueRotate 10s linear infinite',
-                    filter: 'brightness(1.1) contrast(1.1)'
+                    backgroundImage: `linear-gradient(${gradientPosition}deg, 
+                      #ff0000,
+                      #ff7f00,
+                      #ffff00,
+                      #00ff00,
+                      #0000ff,
+                      #8b00ff,
+                      #ff0000)`,
+                    backgroundSize: '400% 400%',
+                    animation: 'rainbow 8s linear infinite'
                   }}
-                />
-              </div>
+                >
+                  ColorOut™
+                </span>
+              </h1>
               <div className="h-px bg-gradient-to-r from-transparent via-white to-transparent opacity-30" />
             </div>
             
