@@ -65,7 +65,7 @@ export default function AdminPanel() {
   const generateNextCode = async () => {
     try {
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/passports?select=code&order=code.desc&limit=1`,
+        `${SUPABASE_URL}/rest/v1/passports?select=code&order=created_at.desc&limit=1`,
         {
           headers: {
             'apikey': SUPABASE_ANON_KEY,
@@ -77,14 +77,21 @@ export default function AdminPanel() {
       
       if (data && data.length > 0) {
         const lastCode = data[0].code;
-        const match = lastCode.match(/(\d+)$/);
-        if (match) {
-          const nextNum = parseInt(match[1]) + 1;
+        console.log('Last code from DB:', lastCode);
+        
+        // Extract number from code like "CO-2026-0071"
+        const parts = lastCode.split('-');
+        if (parts.length === 3) {
+          const lastNumber = parseInt(parts[2]);
+          const nextNumber = lastNumber + 1;
           const year = new Date().getFullYear();
-          return `CO-${year}-${nextNum.toString().padStart(4, '0')}`;
+          const newCode = `CO-${year}-${nextNumber.toString().padStart(4, '0')}`;
+          console.log('Generated new code:', newCode);
+          return newCode;
         }
       }
       
+      // Fallback
       return `CO-${new Date().getFullYear()}-0001`;
     } catch (error) {
       console.error('Error generating code:', error);
