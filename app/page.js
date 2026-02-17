@@ -12,18 +12,9 @@ export default function Home() {
   const [passportCode, setPassportCode] = useState('');
   const [searchResult, setSearchResult] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
-  const [gradientPosition, setGradientPosition] = useState(0);
   const [totalPassports, setTotalPassports] = useState(70);
   const [galleryItems, setGalleryItems] = useState([]);
   const [showClaimForm, setShowClaimForm] = useState(false);
-
-  // Animated gradient effect
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setGradientPosition(prev => (prev + 1) % 360);
-    }, 50);
-    return () => clearInterval(interval);
-  }, []);
 
   // Fetch total passports count on load
   useEffect(() => {
@@ -44,13 +35,11 @@ export default function Home() {
         }
       );
       
-      // Get count from response header
       const count = response.headers.get('content-range');
       if (count) {
         const total = parseInt(count.split('/')[1]);
         setTotalPassports(total);
       } else {
-        // Fallback: count array length
         const data = await response.json();
         if (data && Array.isArray(data)) {
           setTotalPassports(data.length);
@@ -141,15 +130,14 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-black text-white">
       <style jsx>{`
-     @keyframes hueRotate {
-  0% { filter: brightness(1.1) contrast(1.1) hue-rotate(0deg); }
-  100% { filter: brightness(1.1) contrast(1.1) hue-rotate(360deg); }
-}
+        @keyframes hueRotate {
+          0% { filter: brightness(1.1) contrast(1.1) hue-rotate(0deg); }
+          100% { filter: brightness(1.1) contrast(1.1) hue-rotate(360deg); }
+        }
       `}</style>
       
       {/* Hero Section */}
       <div className="relative overflow-hidden">
-        {/* Gradient background */}
         <div className="absolute inset-0 bg-gradient-to-br from-purple-900/20 via-black to-cyan-900/20" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,0,255,0.1),transparent_50%),radial-gradient(circle_at_70%_60%,rgba(0,255,255,0.1),transparent_50%)]" />
         
@@ -157,19 +145,19 @@ export default function Home() {
           <div className="text-center space-y-6">
             <div className="inline-block">
               <div className="mb-2">
-  <img 
-    src="/colorout-3d-logo.png" 
-    alt="ColorOut™" 
-    className="mx-auto"
-    style={{
-      maxWidth: '600px',
-      width: '100%',
-      height: 'auto',
-      animation: 'hueRotate 10s linear infinite',
-      filter: 'brightness(1.1) contrast(1.1)'
-    }}
-  />
-</div>
+                <img 
+                  src="/colorout-3d-logo.png" 
+                  alt="ColorOut™" 
+                  className="mx-auto"
+                  style={{
+                    maxWidth: '600px',
+                    width: '100%',
+                    height: 'auto',
+                    animation: 'hueRotate 10s linear infinite',
+                    filter: 'brightness(1.1) contrast(1.1)'
+                  }}
+                />
+              </div>
               <div className="h-px bg-gradient-to-r from-transparent via-white to-transparent opacity-30" />
             </div>
             
@@ -254,7 +242,6 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="bg-gradient-to-br from-purple-950/30 to-cyan-950/30 border border-purple-900/50 rounded-lg p-8">
-                  {/* Photo Display */}
                   {searchResult.image && (
                     <div className="mb-6">
                       <img 
@@ -325,7 +312,6 @@ export default function Home() {
                 key={item.id}
                 className="group relative aspect-square bg-gradient-to-br from-gray-900 to-black border border-gray-800 rounded-xl overflow-hidden hover:border-purple-700 transition-all duration-300 cursor-pointer"
               >
-                {/* Real image or gradient placeholder */}
                 {item.image_url ? (
                   <img 
                     src={item.image_url} 
@@ -344,10 +330,8 @@ export default function Home() {
                   </>
                 )}
 
-                {/* Dark overlay on hover */}
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity" />
 
-                {/* Content overlay */}
                 <div className="absolute inset-0 flex flex-col justify-end p-6 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                   <div className="space-y-2">
                     <div className="text-sm font-mono text-white font-semibold">{item.code}</div>
@@ -358,7 +342,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Center text when not hovering (only for items without images) */}
                 {!item.image_url && (
                   <div className="absolute inset-0 flex items-center justify-center group-hover:opacity-0 transition-opacity">
                     <div className="text-center">
@@ -433,7 +416,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Claim Passport Form Modal */}
       {showClaimForm && (
         <ClaimPassportForm onClose={() => setShowClaimForm(false)} />
       )}
