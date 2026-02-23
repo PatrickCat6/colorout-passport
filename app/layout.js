@@ -1,5 +1,5 @@
 import './globals.css'
-import { Analytics } from '@vercel/analytics/next'
+import { Analytics } from '@vercel/analytics/react'
 
 export const metadata = {
   title: 'ColorOut™ Passport',
@@ -27,8 +27,8 @@ export default function RootLayout({ children }) {
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
       </head>
       <body>
-        {children}
         <Analytics />
+        {children}
       </body>
     </html>
   )
