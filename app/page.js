@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { Search, Shield, Users, Sparkles, Calendar, MapPin, ExternalLink } from 'lucide-react';
 import ClaimPassportForm from './ClaimPassportForm';
 
@@ -380,10 +381,13 @@ export default function Home() {
         )}
 
         <div className="text-center mt-12">
-          <button className="text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-2 mx-auto">
-            <span>View Full Collection</span>
-            <ExternalLink className="w-4 h-4" />
-          </button>
+      <Link
+  href="/gallery"
+  className="text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-2 mx-auto"
+>
+  <span>View Full Collection</span>
+  <ExternalLink className="w-4 h-4" />
+</Link>
         </div>
       </div>
 
