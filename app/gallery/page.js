@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Calendar, Filter, X } from 'lucide-react';
+import { Search, MapPin, Calendar, Filter, X, Check } from 'lucide-react';
 import Link from 'next/link';
 
 const SUPABASE_URL = 'https://ypwgutlxjdpszlkwzyyu.supabase.co';
@@ -15,6 +15,7 @@ export default function GalleryPage() {
   const [selectedCity, setSelectedCity] = useState('all');
   const [cities, setCities] = useState([]);
   const [sortOrder, setSortOrder] = useState('desc'); // desc = most recent first
+  const [selectedPassport, setSelectedPassport] = useState(null); // For modal
 
   useEffect(() => {
     fetchAllPassports();
@@ -198,9 +199,9 @@ export default function GalleryPage() {
             {/* Grid */}
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredPassports.map((passport) => (
-                <Link
+                <button
                   key={passport.id}
-                  href={`/badge?code=${passport.code}`}
+                  onClick={() => setSelectedPassport(passport)}
                   className="group relative aspect-square bg-gradient-to-br from-gray-900 to-black border border-gray-800 rounded-xl overflow-hidden hover:border-purple-700 transition-all duration-300 cursor-pointer"
                 >
                   {/* Image */}
@@ -236,12 +237,90 @@ export default function GalleryPage() {
                   <div className="absolute top-4 right-4 bg-black/80 backdrop-blur-sm px-3 py-1 rounded-full border border-purple-500/50 z-10">
                     <span className="text-xs font-mono text-purple-300">{passport.code.split('-')[2]}</span>
                   </div>
-                </Link>
+                </button>
               ))}
             </div>
           </>
         )}
       </div>
+
+      {/* Modal for expanded view */}
+      {selectedPassport && (
+        <div 
+          className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          onClick={() => setSelectedPassport(null)}
+        >
+          <div 
+            className="relative max-w-4xl w-full bg-gradient-to-br from-gray-900 to-black border border-gray-800 rounded-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button */}
+            <button
+              onClick={() => setSelectedPassport(null)}
+              className="absolute top-4 right-4 z-20 bg-black/80 backdrop-blur-sm p-2 rounded-full border border-gray-700 hover:border-purple-500 transition-colors"
+            >
+              <X className="w-6 h-6 text-white" />
+            </button>
+
+            <div className="grid md:grid-cols-2 gap-6 p-6">
+              {/* Image */}
+              <div className="relative aspect-square rounded-xl overflow-hidden">
+                <img 
+                  src={selectedPassport.image_url} 
+                  alt={`ColorOut™ ${selectedPassport.code}`}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+
+              {/* Info */}
+              <div className="flex flex-col justify-center space-y-6">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Check className="w-5 h-5 text-green-400" />
+                    <span className="text-sm text-gray-500 uppercase tracking-wider">Authenticated</span>
+                  </div>
+                  <h2 className="text-4xl font-light bg-gradient-to-r from-pink-400 to-cyan-400 text-transparent bg-clip-text mb-4">
+                    {selectedPassport.code}
+                  </h2>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <MapPin className="w-5 h-5 text-purple-400 mt-1" />
+                    <div>
+                      <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Location</div>
+                      <div className="text-white text-lg">{selectedPassport.city}</div>
+                    </div>
+                  </div>
+
+                  {selectedPassport.date && (
+                    <div className="flex items-start gap-3">
+                      <Calendar className="w-5 h-5 text-cyan-400 mt-1" />
+                      <div>
+                        <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Date</div>
+                        <div className="text-white text-lg">{selectedPassport.date}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedPassport.holder_name && (
+                    <div className="pt-4 border-t border-gray-800">
+                      <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Holder</div>
+                      <div className="text-white text-lg">{selectedPassport.holder_name}</div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-6 border-t border-gray-800">
+                  <p className="text-sm text-gray-400">
+                    This certificate verifies the authenticity of a ColorOut™ tattoo by Patrick Cat. Part of an exclusive community preserving color as preserving humanity.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Back to Home */}
       <div className="border-t border-gray-900 py-12">
