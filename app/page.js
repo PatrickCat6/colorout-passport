@@ -168,10 +168,10 @@ export default function Home() {
 
     loader.load(fontUrl, function (font) {
       const text = 'ColorOut™';
-      const size = 0.7;
-      const depth = 0.25;
+      const size = 2.1; // 3x larger (was 0.7)
+      const depth = 0.75; // 3x larger (was 0.25)
       let offsetX = 0;
-      const spacing = 0.05;
+      const spacing = 0.15; // 3x larger (was 0.05)
 
       for (let i = 0; i < text.length; i++) {
         const ch = text[i];
@@ -254,13 +254,13 @@ export default function Home() {
                 id="logo-3d-container" 
                 style={{ 
                   width: '100%', 
-                  height: '300px', 
+                  height: '500px', 
                   position: 'relative'
                 }}
               />
             </div>
             
-            <h2 className="text-3xl font-light tracking-wide text-gray-700">
+            <h2 className="text-3xl font-bold tracking-wide text-black">
               Certificate of Authenticity
             </h2>
             
@@ -296,11 +296,11 @@ export default function Home() {
       {/* Passport Lookup Section - BLACK BACKGROUND */}
       <div className="bg-black text-white">
         <div className="max-w-4xl mx-auto px-6 py-20">
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-12">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-12">
             <div className="text-center mb-8">
-              <Shield className="w-12 h-12 mx-auto mb-4 text-white" />
-              <h3 className="text-2xl font-light mb-2">Verify Your Passport</h3>
-              <p className="text-gray-400">Enter your unique ColorOut™ code</p>
+              <Shield className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+              <h3 className="text-2xl font-light mb-2 text-gray-300">Verify Your Passport</h3>
+              <p className="text-gray-500">Enter your unique ColorOut™ code</p>
             </div>
 
             <div className="flex gap-3 max-w-xl mx-auto">
@@ -478,10 +478,10 @@ export default function Home() {
                 description: "First look at PumpSkins drops, exhibition invites, and behind-the-scenes content"
               }
             ].map((benefit, idx) => (
-              <div key={idx} className="bg-gray-900 border border-gray-800 rounded-xl p-8 hover:border-white transition-colors">
-                <div className="text-white mb-4">{benefit.icon}</div>
-                <h4 className="text-xl font-light mb-3">{benefit.title}</h4>
-                <p className="text-gray-400 text-sm leading-relaxed">{benefit.description}</p>
+              <div key={idx} className="bg-gray-900 border border-gray-700 rounded-xl p-8 hover:border-gray-500 transition-colors">
+                <div className="text-gray-400 mb-4">{benefit.icon}</div>
+                <h4 className="text-xl font-light mb-3 text-gray-300">{benefit.title}</h4>
+                <p className="text-gray-500 text-sm leading-relaxed">{benefit.description}</p>
               </div>
             ))}
           </div>
