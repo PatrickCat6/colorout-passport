@@ -1,35 +1,14 @@
-import './globals.css'
-import { Analytics } from '@vercel/analytics/react'
+import './globals.css';
 
 export const metadata = {
-  title: 'ColorOut™ Passport',
-  description: 'Certificate of Authenticity for ColorOut™ tattoos by Patrick Cat',
-  manifest: '/manifest.json',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'ColorOut™'
-  }
-}
-
-export const viewport = {
-  themeColor: '#FF0080'
-}
+  title: 'ColorOut™ — Certificate of Authenticity',
+  description: 'ColorOut™ Passport - Certificate of Authenticity System for tattoos by Patrick Cat. Verify your passport and join the collector community.',
+};
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="ColorOut™" />
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
-      </head>
-      <body>
-        <Analytics />
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
-  )
+  );
 }
