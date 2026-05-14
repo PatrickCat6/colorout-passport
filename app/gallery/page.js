@@ -1,338 +1,881 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Calendar, Filter, X, Check } from 'lucide-react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 
 const SUPABASE_URL = 'https://ypwgutlxjdpszlkwzyyu.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjQ1MjgsImV4cCI6MjA4NjUwMDUyOH0.yV4j8tZ6-eNmLKS7NlxfPtUaQ1-qn33yUaKtln-KMJo';
+const SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjQ1MjgsImV4cCI6MjA4NjUwMDUyOH0.yV4j8tZ6-eNmLKS7NlxfPtUaQ1-qn33yUaKtln-KMJo';
 
 export default function GalleryPage() {
   const [passports, setPassports] = useState([]);
-  const [filteredPassports, setFilteredPassports] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchCode, setSearchCode] = useState('');
-  const [selectedCity, setSelectedCity] = useState('all');
-  const [cities, setCities] = useState([]);
-  const [sortOrder, setSortOrder] = useState('desc'); // desc = most recent first
-  const [selectedPassport, setSelectedPassport] = useState(null); // For modal
+  const [errored, setErrored] = useState(false);
+  const [city, setCity] = useState('all');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('code-asc');
+  const [view, setView] = useState('comfy'); // comfy | dense | list
+  const [selected, setSelected] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Fetch all
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const r = await fetch(
+          `${SUPABASE_URL}/rest/v1/passports?select=*&order=code.asc&limit=200`,
+          { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+        );
+        const data = await r.json();
+        if (!cancelled && Array.isArray(data)) setPassports(data);
+        else if (!cancelled) setErrored(true);
+      } catch (e) {
+        if (!cancelled) setErrored(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
-    fetchAllPassports();
-  }, [sortOrder]);
+    document.body.style.overflow = menuOpen || selected ? 'hidden' : '';
+  }, [menuOpen, selected]);
 
+  // Esc closes modal
   useEffect(() => {
-    applyFilters();
-  }, [passports, searchCode, selectedCity]);
+    const onKey = (e) => { if (e.key === 'Escape') setSelected(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
-  const fetchAllPassports = async () => {
-    setLoading(true);
-    try {
-      const order = sortOrder === 'desc' ? 'created_at.desc' : 'created_at.asc';
-      const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/passports?select=*&order=${order}`,
-        {
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-          }
-        }
-      );
-      const data = await response.json();
-      
-      // Only include passports with images
-      const withImages = data.filter(p => p.image_url);
-      setPassports(withImages);
-      
-      // Extract unique cities
-      const uniqueCities = [...new Set(withImages.map(p => p.city))].sort();
-      setCities(uniqueCities);
-    } catch (error) {
-      console.error('Error fetching passports:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const cities = useMemo(() => {
+    const counts = {};
+    passports.forEach((p) => {
+      const c = (p.city || 'Unknown').trim();
+      counts[c] = (counts[c] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [passports]);
 
-  const applyFilters = () => {
-    let filtered = [...passports];
-
-    // Search by code
-    if (searchCode) {
-      filtered = filtered.filter(p => 
-        p.code.toLowerCase().includes(searchCode.toLowerCase())
+  const filtered = useMemo(() => {
+    let list = passports.slice();
+    if (city !== 'all') list = list.filter((p) => (p.city || 'Unknown').trim() === city);
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter((p) =>
+        (p.code || '').toLowerCase().includes(q) ||
+        (p.city || '').toLowerCase().includes(q) ||
+        (p.holder_name || '').toLowerCase().includes(q)
       );
     }
+    list.sort((a, b) => {
+      if (sort === 'code-asc') return (a.code || '').localeCompare(b.code || '');
+      if (sort === 'code-desc') return (b.code || '').localeCompare(a.code || '');
+      if (sort === 'date-desc') return (b.date || '').localeCompare(a.date || '');
+      if (sort === 'date-asc') return (a.date || '').localeCompare(b.date || '');
+      return 0;
+    });
+    return list;
+  }, [passports, city, search, sort]);
 
-    // Filter by city
-    if (selectedCity !== 'all') {
-      filtered = filtered.filter(p => p.city === selectedCity);
-    }
+  const total = passports.length;
+  const totalStr = String(total).padStart(2, '0');
 
-    setFilteredPassports(filtered);
-  };
-
-  const clearFilters = () => {
-    setSearchCode('');
-    setSelectedCity('all');
-  };
-
-  const hasActiveFilters = searchCode || selectedCity !== 'all';
+  const openModal = useCallback((p) => setSelected(p), []);
+  const closeModal = useCallback(() => setSelected(null), []);
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      {/* Header */}
-      <div className="border-b border-gray-900">
-        <div className="max-w-7xl mx-auto px-6 py-12">
-          <div className="text-center mb-8">
-            <h1 className="text-5xl font-light mb-4">
-              <span className="bg-gradient-to-r from-pink-400 via-purple-400 to-cyan-400 text-transparent bg-clip-text">
-                ColorOut™ Gallery
-              </span>
-            </h1>
-            <p className="text-gray-400 text-lg">
-              {passports.length} authenticated ColorOut™ tattoos from around the world
-            </p>
+    <>
+      <div className="spectrum-bar" />
+
+      <nav>
+        <div className="nav-logo" style={{ fontSize: '17px' }}>COLOROUT&#8482;</div>
+        <div className="nav-links">
+          <Link href="/#about">About</Link>
+          <Link href="/#verify">Verify</Link>
+          <Link href="/gallery" className="active" style={{ color: 'var(--white)' }}>Gallery</Link>
+          <Link href="/#benefits">Benefits</Link>
+        </div>
+        <button className="nav-menu-btn" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>MENU</button>
+      </nav>
+
+      <div className={`mobile-menu${menuOpen ? ' open' : ''}`} aria-hidden={!menuOpen}>
+        <div className="mobile-menu-header">
+          <div className="nav-logo">ColorOut&#8482; <span className="nav-artist">by Patrick Cat</span></div>
+          <button className="nav-menu-btn" aria-label="Close menu" onClick={() => setMenuOpen(false)}>CLOSE</button>
+        </div>
+        <div className="mobile-menu-links">
+          <Link href="/#about" onClick={() => setMenuOpen(false)}>About</Link>
+          <Link href="/#verify" onClick={() => setMenuOpen(false)}>Verify</Link>
+          <Link href="/gallery" onClick={() => setMenuOpen(false)}>Gallery</Link>
+          <Link href="/#benefits" onClick={() => setMenuOpen(false)}>Benefits</Link>
+        </div>
+        <div className="mobile-menu-footer">
+          <a href="https://www.instagram.com/patrickcat_art/" target="_blank" rel="noopener noreferrer">Instagram &#8599;</a>
+          <span>NYC &middot; EST. 2020</span>
+        </div>
+      </div>
+
+      {/* HEADER */}
+      <header className="gallery-header">
+        <div>
+          <div className="gallery-eyebrow">The Archive &middot; 2020 — 2026</div>
+          <h1 className="gallery-title">
+            Gallery<span className="ar">/{totalStr}</span>
+          </h1>
+        </div>
+        <div className="gallery-meta">
+          <strong>{totalStr}</strong>
+          Authenticated<br />ColorOut&#8482; Tattoos
+        </div>
+      </header>
+
+      {/* TOOLBAR */}
+      <div className="toolbar">
+        <div className="toolbar-left">
+          <button
+            className={`filter-chip${city === 'all' ? ' active' : ''}`}
+            onClick={() => setCity('all')}
+          >
+            All <span className="count">{total}</span>
+          </button>
+          {cities.map(([c, n]) => (
+            <button
+              key={c}
+              className={`filter-chip${city === c ? ' active' : ''}`}
+              onClick={() => setCity(c)}
+            >
+              {c} <span className="count">{n}</span>
+            </button>
+          ))}
+        </div>
+        <div className="toolbar-right">
+          <div className="toolbar-search">
+            <input
+              type="text"
+              placeholder="Search code..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
-
-          {/* Filters */}
-          <div className="max-w-4xl mx-auto">
-            <div className="grid md:grid-cols-3 gap-4">
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <input
-                  type="text"
-                  placeholder="Search by code..."
-                  value={searchCode}
-                  onChange={(e) => setSearchCode(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-12 pr-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 transition-colors uppercase"
-                />
-              </div>
-
-              {/* City Filter */}
-              <div className="relative">
-                <MapPin className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <select
-                  value={selectedCity}
-                  onChange={(e) => setSelectedCity(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-12 pr-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors appearance-none cursor-pointer"
-                >
-                  <option value="all">All Cities</option>
-                  {cities.map(city => (
-                    <option key={city} value={city}>{city}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Sort Order */}
-              <div className="relative">
-                <Calendar className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <select
-                  value={sortOrder}
-                  onChange={(e) => setSortOrder(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-12 pr-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors appearance-none cursor-pointer"
-                >
-                  <option value="desc">Most Recent First</option>
-                  <option value="asc">Oldest First</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Active Filters & Clear */}
-            {hasActiveFilters && (
-              <div className="mt-4 flex items-center justify-between bg-purple-900/20 border border-purple-800/50 rounded-lg px-4 py-3">
-                <div className="flex items-center gap-2 text-sm text-purple-300">
-                  <Filter className="w-4 h-4" />
-                  <span>
-                    {searchCode && `Code: "${searchCode}"`}
-                    {searchCode && selectedCity !== 'all' && ' • '}
-                    {selectedCity !== 'all' && `City: ${selectedCity}`}
-                  </span>
-                </div>
-                <button
-                  onClick={clearFilters}
-                  className="text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-1 text-sm"
-                >
-                  <X className="w-4 h-4" />
-                  Clear Filters
-                </button>
-              </div>
-            )}
+          <select
+            className="sort-select"
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            aria-label="Sort"
+          >
+            <option value="code-asc">Code ↑</option>
+            <option value="code-desc">Code ↓</option>
+            <option value="date-desc">Newest</option>
+            <option value="date-asc">Oldest</option>
+          </select>
+          <div className="view-toggle">
+            {['comfy', 'dense', 'list'].map((v) => (
+              <button
+                key={v}
+                className={`view-btn${view === v ? ' active' : ''}`}
+                onClick={() => setView(v)}
+              >
+                {v === 'comfy' ? 'Grid' : v === 'dense' ? 'Dense' : 'List'}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Gallery Grid */}
-      <div className="max-w-7xl mx-auto px-6 py-12">
+      {/* GRID */}
+      <div className="gallery-wrap">
         {loading ? (
-          <div className="text-center py-20">
-            <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-gray-400">Loading gallery...</p>
+          <div className={`grid ${view}`}>
+            {Array.from({ length: 24 }).map((_, i) => (
+              <div key={i} className="skeleton" />
+            ))}
           </div>
-        ) : filteredPassports.length === 0 ? (
-          <div className="text-center py-20">
-            <div className="text-6xl mb-4">🔍</div>
-            <h3 className="text-2xl font-light mb-2">No passports found</h3>
-            <p className="text-gray-400 mb-6">
-              {hasActiveFilters 
-                ? "Try adjusting your filters or search term"
-                : "No authenticated passports with photos yet"
-              }
-            </p>
-            {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 px-6 py-3 rounded-lg font-medium transition-all"
-              >
-                Clear Filters
-              </button>
-            )}
-          </div>
+        ) : errored ? (
+          <div className="state error">Could not load archive. Please refresh.</div>
+        ) : filtered.length === 0 ? (
+          <div className="state">No passports match your filter.</div>
         ) : (
-          <>
-            {/* Results Count */}
-            <div className="mb-6 text-center text-gray-500 text-sm">
-              Showing {filteredPassports.length} of {passports.length} passports
-            </div>
-
-            {/* Grid */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredPassports.map((passport) => (
-                <button
-                  key={passport.id}
-                  onClick={() => setSelectedPassport(passport)}
-                  className="group relative aspect-square bg-gradient-to-br from-gray-900 to-black border border-gray-800 rounded-xl overflow-hidden hover:border-purple-700 transition-all duration-300 cursor-pointer"
-                >
-                  {/* Image */}
-                  <img 
-                    src={passport.image_url} 
-                    alt={`ColorOut™ ${passport.code}`}
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-
-                  {/* Overlay on hover */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-
-                  {/* Info overlay */}
-                  <div className="absolute inset-0 flex flex-col justify-end p-6 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                    <div className="space-y-2">
-                      <div className="text-sm font-mono text-white font-semibold bg-gradient-to-r from-pink-400 to-cyan-400 text-transparent bg-clip-text">
-                        {passport.code}
+          <div className={`grid ${view}`}>
+            {filtered.map((p, i) => (
+              <button
+                key={p.id || p.code}
+                className="tile"
+                onClick={() => openModal(p)}
+                type="button"
+              >
+                {view === 'list' ? (
+                  <>
+                    {p.image_url ? (
+                      <img src={p.image_url} loading="lazy" alt={`ColorOut ${p.code}`} />
+                    ) : (
+                      <div className="list-img-fallback" />
+                    )}
+                    <div className="list-info">
+                      <div className="lc">{p.code || '—'}</div>
+                      <div className="lm">
+                        {(p.city || 'Unknown')} &middot; {p.date || '—'}
+                        {p.holder_name ? ` · ${p.holder_name}` : ''}
                       </div>
-                      <div className="flex items-center gap-2 text-gray-200">
-                        <MapPin className="w-4 h-4" />
-                        <span className="text-sm">{passport.city}</span>
-                      </div>
-                      {passport.date && (
-                        <div className="flex items-center gap-2 text-gray-300">
-                          <Calendar className="w-4 h-4" />
-                          <span className="text-xs">{passport.date}</span>
-                        </div>
-                      )}
                     </div>
-                  </div>
-
-                  {/* Passport code badge (always visible) */}
-                  <div className="absolute top-4 right-4 bg-black/80 backdrop-blur-sm px-3 py-1 rounded-full border border-purple-500/50 z-10">
-                    <span className="text-xs font-mono text-purple-300">{passport.code.split('-')[2]}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </>
+                    <div className="list-arrow">→</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="tile-corner">{p.code || '—'}</div>
+                    <div className="tile-index">
+                      {String(i + 1).padStart(2, '0')}/{totalStr}
+                    </div>
+                    {p.image_url ? (
+                      <img src={p.image_url} loading="lazy" alt={`ColorOut ${p.code}`} />
+                    ) : (
+                      <div className="tile-fallback" />
+                    )}
+                    <div className="tile-overlay">
+                      <div className="tile-code">{p.code}</div>
+                      <div className="tile-meta">
+                        ◉ {p.city || 'Unknown'}
+                        {p.date ? ` · ${(p.date || '').slice(0, 4)}` : ''}
+                      </div>
+                    </div>
+                    <div className="tile-bar" />
+                  </>
+                )}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
-      {/* Modal for expanded view */}
-      {selectedPassport && (
-        <div 
-          className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-6"
-          onClick={() => setSelectedPassport(null)}
-        >
-          <div 
-            className="relative max-w-4xl w-full bg-gradient-to-br from-gray-900 to-black border border-gray-800 rounded-2xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Close button */}
-            <button
-              onClick={() => setSelectedPassport(null)}
-              className="absolute top-4 right-4 z-20 bg-black/80 backdrop-blur-sm p-2 rounded-full border border-gray-700 hover:border-purple-500 transition-colors"
-            >
-              <X className="w-6 h-6 text-white" />
-            </button>
-
-            <div className="grid md:grid-cols-2 gap-6 p-6">
-              {/* Image */}
-              <div className="relative aspect-square rounded-xl overflow-hidden">
-                <img 
-                  src={selectedPassport.image_url} 
-                  alt={`ColorOut™ ${selectedPassport.code}`}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-
-              {/* Info */}
-              <div className="flex flex-col justify-center space-y-6">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Check className="w-5 h-5 text-green-400" />
-                    <span className="text-sm text-gray-500 uppercase tracking-wider">Authenticated</span>
-                  </div>
-                  <h2 className="text-4xl font-light bg-gradient-to-r from-pink-400 to-cyan-400 text-transparent bg-clip-text mb-4">
-                    {selectedPassport.code}
-                  </h2>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex items-start gap-3">
-                    <MapPin className="w-5 h-5 text-purple-400 mt-1" />
-                    <div>
-                      <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Location</div>
-                      <div className="text-white text-lg">{selectedPassport.city}</div>
-                    </div>
-                  </div>
-
-                  {selectedPassport.date && (
-                    <div className="flex items-start gap-3">
-                      <Calendar className="w-5 h-5 text-cyan-400 mt-1" />
-                      <div>
-                        <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Date</div>
-                        <div className="text-white text-lg">{selectedPassport.date}</div>
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedPassport.holder_name && (
-                    <div className="pt-4 border-t border-gray-800">
-                      <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Holder</div>
-                      <div className="text-white text-lg">{selectedPassport.holder_name}</div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="pt-6 border-t border-gray-800">
-                  <p className="text-sm text-gray-400">
-                    This certificate verifies the authenticity of a ColorOut™ tattoo by Patrick Cat. Part of an exclusive community preserving color as preserving humanity.
-                  </p>
+      {/* MODAL */}
+      {selected && (
+        <div className="modal open" onClick={closeModal} role="dialog" aria-modal="true">
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={closeModal} aria-label="Close">✕</button>
+            <div className="modal-img">
+              {selected.image_url && <img src={selected.image_url} alt={`ColorOut ${selected.code}`} />}
+            </div>
+            <div className="modal-info">
+              <span className="modal-eyebrow">✓ Verified Authentic</span>
+              <div className="modal-code">{selected.code || '—'}</div>
+              <div className="modal-meta">
+                <div className="modal-meta-item"><label>Date</label><span>{selected.date || '—'}</span></div>
+                <div className="modal-meta-item"><label>Location</label><span>{selected.city || '—'}</span></div>
+                <div className="modal-meta-item"><label>Holder</label><span>{selected.holder_name || 'Private'}</span></div>
+                <div className="modal-meta-item">
+                  <label>Index</label>
+                  <span>
+                    {String(passports.findIndex((p) => (p.id || p.code) === (selected.id || selected.code)) + 1).padStart(2, '0')} / {totalStr}
+                  </span>
                 </div>
               </div>
+              <p className="modal-note">
+                This certificate verifies the authenticity of a ColorOut&#8482; tattoo by Patrick Cat. Each piece is freehand, fully chromatic, and recorded in the permanent ColorOut&#8482; archive.
+              </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Back to Home */}
-      <div className="border-t border-gray-900 py-12">
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 text-purple-400 hover:text-purple-300 transition-colors"
-          >
-            ← Back to Home
-          </Link>
+      <footer>
+        <div className="footer-brand">ColorOut&#8482;</div>
+        <div className="footer-sub">Preserving Color as Preserving Humanity</div>
+        <div className="footer-links">
+          <a href="https://www.instagram.com/patrickcat_art/" target="_blank" rel="noopener noreferrer">Instagram</a>
+          <a href="https://mixiartstudio.us" target="_blank" rel="noopener noreferrer">Mixi Art Studio</a>
+          <a href="https://patrickcat.com" target="_blank" rel="noopener noreferrer">patrickcat.com</a>
         </div>
-      </div>
-    </div>
+        <p className="footer-copy">&copy; 2026 Mixi Art Studio LLC. All rights reserved.</p>
+      </footer>
+
+      <style jsx>{`
+        .gallery-header {
+          padding: 140px 40px 40px;
+          max-width: 1400px;
+          margin: 0 auto;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 40px;
+          align-items: end;
+          border-bottom: 1px solid rgba(10, 10, 10, 0.06);
+        }
+        .gallery-eyebrow {
+          font-family: var(--font-body);
+          font-size: 11px;
+          letter-spacing: 3px;
+          text-transform: uppercase;
+          color: var(--magenta);
+          margin-bottom: 18px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .gallery-eyebrow::before {
+          content: '';
+          width: 30px;
+          height: 1px;
+          background: var(--magenta);
+        }
+        .gallery-title {
+          font-family: var(--font-body);
+          font-weight: 800;
+          font-size: clamp(60px, 9vw, 140px);
+          line-height: 0.85;
+          letter-spacing: -4px;
+          text-transform: uppercase;
+          color: var(--white);
+        }
+        .gallery-title :global(.ar) {
+          font-size: 0.28em;
+          vertical-align: top;
+          opacity: 0.45;
+          font-weight: 500;
+          letter-spacing: 1px;
+          margin-left: 8px;
+        }
+        .gallery-meta {
+          text-align: right;
+          font-family: var(--font-body);
+          font-size: 12px;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          color: rgba(10, 10, 10, 0.45);
+          line-height: 1.8;
+        }
+        .gallery-meta strong {
+          display: block;
+          font-size: 48px;
+          font-weight: 800;
+          color: var(--white);
+          letter-spacing: -1px;
+          line-height: 1;
+          margin-bottom: 6px;
+        }
+
+        .toolbar {
+          max-width: 1400px;
+          margin: 0 auto;
+          padding: 24px 40px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 24px;
+          align-items: center;
+          justify-content: space-between;
+          border-bottom: 1px solid rgba(10, 10, 10, 0.06);
+          position: sticky;
+          top: 60px;
+          background: rgba(255, 255, 255, 0.85);
+          backdrop-filter: blur(20px);
+          z-index: 50;
+        }
+        .toolbar-left {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+        }
+        .filter-chip {
+          font-family: var(--font-body);
+          font-size: 11px;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          font-weight: 600;
+          padding: 8px 16px;
+          background: transparent;
+          border: 1px solid rgba(10, 10, 10, 0.12);
+          color: rgba(10, 10, 10, 0.55);
+          cursor: pointer;
+          transition: all 0.25s;
+          border-radius: 0;
+        }
+        .filter-chip:hover {
+          border-color: var(--white);
+          color: var(--white);
+        }
+        .filter-chip.active {
+          background: var(--white);
+          color: var(--black);
+          border-color: var(--white);
+        }
+        .filter-chip :global(.count) {
+          font-size: 9px;
+          margin-left: 6px;
+          opacity: 0.6;
+          font-weight: 500;
+        }
+
+        .toolbar-right {
+          display: flex;
+          gap: 12px;
+          align-items: center;
+        }
+        .toolbar-search {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+        .toolbar-search input {
+          padding: 10px 14px 10px 36px;
+          background: rgba(10, 10, 10, 0.04);
+          border: 1px solid rgba(10, 10, 10, 0.08);
+          font-family: var(--font-body);
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 2px;
+          color: var(--white);
+          outline: none;
+          width: 180px;
+          transition: all 0.25s;
+        }
+        .toolbar-search input::placeholder {
+          color: rgba(10, 10, 10, 0.3);
+        }
+        .toolbar-search input:focus {
+          border-color: var(--cyan);
+          background: rgba(0, 229, 255, 0.04);
+          width: 240px;
+        }
+        .toolbar-search::before {
+          content: '⌕';
+          position: absolute;
+          left: 12px;
+          top: 50%;
+          transform: translateY(-50%);
+          font-size: 14px;
+          color: rgba(10, 10, 10, 0.4);
+          pointer-events: none;
+        }
+
+        .sort-select {
+          padding: 8px 14px;
+          background: transparent;
+          border: 1px solid rgba(10, 10, 10, 0.12);
+          font-family: var(--font-body);
+          font-size: 11px;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          font-weight: 600;
+          color: rgba(10, 10, 10, 0.55);
+          cursor: pointer;
+        }
+
+        .view-toggle {
+          display: flex;
+          border: 1px solid rgba(10, 10, 10, 0.12);
+        }
+        .view-btn {
+          padding: 9px 12px;
+          background: transparent;
+          border: none;
+          font-family: var(--font-body);
+          font-size: 11px;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          color: rgba(10, 10, 10, 0.45);
+          cursor: pointer;
+          transition: all 0.25s;
+          border-right: 1px solid rgba(10, 10, 10, 0.08);
+        }
+        .view-btn:last-child {
+          border-right: none;
+        }
+        .view-btn:hover {
+          color: var(--white);
+        }
+        .view-btn.active {
+          background: var(--white);
+          color: var(--black);
+        }
+
+        .gallery-wrap {
+          max-width: 1400px;
+          margin: 0 auto;
+          padding: 32px 40px 80px;
+        }
+
+        .grid {
+          display: grid;
+          gap: 14px;
+        }
+        .grid.dense {
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        }
+        .grid.comfy {
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        }
+        .grid.list {
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
+
+        .tile {
+          position: relative;
+          aspect-ratio: 1;
+          overflow: hidden;
+          border: 1px solid rgba(10, 10, 10, 0.06);
+          cursor: pointer;
+          background: rgba(10, 10, 10, 0.025);
+          transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.3s;
+          padding: 0;
+          text-align: left;
+          font: inherit;
+          color: inherit;
+        }
+        .tile:hover {
+          transform: translateY(-4px);
+          border-color: rgba(0, 229, 255, 0.4);
+        }
+        .tile :global(img) {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+          transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        .tile:hover :global(img) {
+          transform: scale(1.04);
+        }
+        .tile-fallback {
+          width: 100%;
+          height: 100%;
+          background: repeating-linear-gradient(
+            45deg,
+            rgba(10, 10, 10, 0.04),
+            rgba(10, 10, 10, 0.04) 8px,
+            rgba(10, 10, 10, 0.07) 8px,
+            rgba(10, 10, 10, 0.07) 16px
+          );
+        }
+        .tile-corner {
+          position: absolute;
+          top: 10px;
+          left: 10px;
+          font-family: var(--font-body);
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 1.5px;
+          background: rgba(255, 255, 255, 0.92);
+          color: var(--white);
+          padding: 4px 8px;
+          z-index: 2;
+          text-transform: uppercase;
+        }
+        .tile-index {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          font-family: var(--font-body);
+          font-size: 9px;
+          font-weight: 600;
+          letter-spacing: 1px;
+          color: rgba(10, 10, 10, 0.45);
+          background: rgba(255, 255, 255, 0.7);
+          padding: 3px 6px;
+          z-index: 2;
+        }
+        .tile-overlay {
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(180deg, transparent 35%, rgba(255, 255, 255, 0.95));
+          padding: 18px;
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-end;
+          opacity: 0;
+          transition: opacity 0.3s;
+        }
+        .tile:hover .tile-overlay {
+          opacity: 1;
+        }
+        .tile-code {
+          font-family: var(--font-body);
+          font-weight: 800;
+          font-size: 15px;
+          color: var(--white);
+        }
+        .tile-meta {
+          font-family: var(--font-body);
+          font-size: 10px;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          color: rgba(10, 10, 10, 0.55);
+          margin-top: 4px;
+        }
+        .tile-bar {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          height: 2px;
+          width: 100%;
+          background: var(--gradient-spectrum);
+          background-size: 200% 100%;
+          animation: spectrumFlow 4s linear infinite;
+          transform: scaleX(0);
+          transform-origin: left;
+          transition: transform 0.4s ease;
+        }
+        .tile:hover .tile-bar {
+          transform: scaleX(1);
+        }
+
+        /* LIST VIEW */
+        .grid.list .tile {
+          aspect-ratio: auto;
+          display: grid;
+          grid-template-columns: 120px 1fr auto;
+          gap: 24px;
+          align-items: center;
+          padding: 0;
+          border: none;
+          border-bottom: 1px solid rgba(10, 10, 10, 0.06);
+          height: auto;
+          background: transparent;
+        }
+        .grid.list .tile:hover {
+          transform: none;
+          background: rgba(10, 10, 10, 0.02);
+        }
+        .grid.list .tile :global(img) {
+          width: 120px;
+          height: 120px;
+        }
+        .list-img-fallback {
+          width: 120px;
+          height: 120px;
+          background: rgba(10, 10, 10, 0.04);
+        }
+        .list-info {
+          padding: 18px 0;
+        }
+        .list-info :global(.lc) {
+          font-family: var(--font-body);
+          font-weight: 800;
+          font-size: 18px;
+          letter-spacing: 1px;
+          color: var(--white);
+        }
+        .list-info :global(.lm) {
+          font-family: var(--font-body);
+          font-size: 11px;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          color: rgba(10, 10, 10, 0.5);
+          margin-top: 4px;
+        }
+        .list-arrow {
+          padding-right: 18px;
+          font-family: var(--font-body);
+          font-size: 18px;
+          color: rgba(10, 10, 10, 0.3);
+          transition: transform 0.25s, color 0.25s;
+        }
+        .grid.list .tile:hover .list-arrow {
+          color: var(--cyan);
+          transform: translateX(4px);
+        }
+
+        .state {
+          text-align: center;
+          padding: 80px 20px;
+          font-family: var(--font-body);
+          font-size: 11px;
+          letter-spacing: 3px;
+          text-transform: uppercase;
+          color: rgba(10, 10, 10, 0.35);
+        }
+        .state.error {
+          color: rgba(255, 45, 123, 0.8);
+        }
+        .skeleton {
+          aspect-ratio: 1;
+          background: linear-gradient(
+            90deg,
+            rgba(10, 10, 10, 0.04),
+            rgba(10, 10, 10, 0.08),
+            rgba(10, 10, 10, 0.04)
+          );
+          background-size: 200% 100%;
+          animation: shimmer 1.4s infinite;
+          border: 1px solid rgba(10, 10, 10, 0.05);
+        }
+        @keyframes shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+
+        .modal {
+          position: fixed;
+          inset: 0;
+          background: rgba(255, 255, 255, 0.85);
+          backdrop-filter: blur(24px);
+          z-index: 500;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 40px;
+        }
+        .modal-card {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          max-width: 1100px;
+          width: 100%;
+          max-height: 88vh;
+          background: var(--black);
+          border: 1px solid rgba(10, 10, 10, 0.1);
+          box-shadow: 0 30px 80px rgba(10, 10, 10, 0.18);
+          overflow: hidden;
+          position: relative;
+        }
+        .modal-card::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 3px;
+          background: var(--gradient-spectrum);
+          background-size: 300% 100%;
+          animation: spectrumFlow 4s linear infinite;
+          z-index: 3;
+        }
+        .modal-img {
+          background: #000;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .modal-img :global(img) {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .modal-info {
+          padding: 48px 40px;
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+          overflow-y: auto;
+        }
+        .modal-eyebrow {
+          display: inline-block;
+          align-self: flex-start;
+          background: rgba(0, 255, 136, 0.12);
+          color: #00b85f;
+          border: 1px solid rgba(0, 255, 136, 0.35);
+          font-family: var(--font-body);
+          font-size: 10px;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          padding: 5px 12px;
+          font-weight: 600;
+        }
+        .modal-code {
+          font-family: var(--font-body);
+          font-weight: 800;
+          font-size: 42px;
+          letter-spacing: -1px;
+          color: var(--white);
+          line-height: 1;
+        }
+        .modal-meta {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 18px;
+          padding-top: 20px;
+          border-top: 1px solid rgba(10, 10, 10, 0.08);
+        }
+        .modal-meta-item :global(label) {
+          font-family: var(--font-body);
+          font-size: 9px;
+          letter-spacing: 2.5px;
+          text-transform: uppercase;
+          color: rgba(10, 10, 10, 0.4);
+          display: block;
+          margin-bottom: 4px;
+        }
+        .modal-meta-item :global(span) {
+          font-size: 14px;
+          color: var(--white);
+          font-weight: 600;
+        }
+        .modal-note {
+          font-size: 12px;
+          line-height: 1.7;
+          color: rgba(10, 10, 10, 0.5);
+          padding-top: 20px;
+          border-top: 1px solid rgba(10, 10, 10, 0.08);
+        }
+        .modal-close {
+          position: absolute;
+          top: 18px;
+          right: 18px;
+          width: 36px;
+          height: 36px;
+          border: 1px solid rgba(10, 10, 10, 0.15);
+          background: rgba(255, 255, 255, 0.85);
+          font-family: var(--font-body);
+          font-size: 14px;
+          cursor: pointer;
+          z-index: 5;
+          transition: all 0.25s;
+          color: var(--white);
+        }
+        .modal-close:hover {
+          border-color: var(--magenta);
+          color: var(--magenta);
+        }
+
+        @media (max-width: 900px) {
+          .gallery-header {
+            padding: 120px 20px 30px;
+            grid-template-columns: 1fr;
+            gap: 20px;
+          }
+          .gallery-meta {
+            text-align: left;
+          }
+          .toolbar {
+            padding: 18px 20px;
+            gap: 14px;
+            top: 56px;
+          }
+          .toolbar-search input {
+            width: 140px;
+          }
+          .toolbar-search input:focus {
+            width: 160px;
+          }
+          .gallery-wrap {
+            padding: 24px 20px 60px;
+          }
+          .grid.comfy,
+          .grid.dense {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+          .modal {
+            padding: 0;
+          }
+          .modal-card {
+            grid-template-columns: 1fr;
+            max-height: 100vh;
+          }
+          .modal-img {
+            aspect-ratio: 1;
+            max-height: 50vh;
+          }
+          .modal-info {
+            padding: 28px 22px;
+          }
+          .modal-code {
+            font-size: 32px;
+          }
+        }
+      `}</style>
+    </>
   );
 }
