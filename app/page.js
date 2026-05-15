@@ -178,7 +178,7 @@ export default function Home() {
         <div className="nav-links">
           <a href="#about">About</a>
           <a href="#verify">Verify</a>
-          <a href="#gallery">Gallery</a>
+          <a href="/gallery">Gallery</a>
           <a href="#benefits">Benefits</a>
         </div>
         <button className="nav-menu-btn" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>MENU</button>
@@ -192,7 +192,7 @@ export default function Home() {
         <div className="mobile-menu-links">
           <a href="#about" onClick={() => setMenuOpen(false)}>About</a>
           <a href="#verify" onClick={() => setMenuOpen(false)}>Verify</a>
-          <a href="#gallery" onClick={() => setMenuOpen(false)}>Gallery</a>
+          <a href="/gallery" onClick={() => setMenuOpen(false)}>Gallery</a>
           <a href="#benefits" onClick={() => setMenuOpen(false)}>Benefits</a>
         </div>
         <div className="mobile-menu-footer">
