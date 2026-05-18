@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Script from 'next/script';
+import ClaimPassportForm from './ClaimPassportForm';
 
 const SUPABASE_URL = 'https://ypwgutlxjdpszlkwzyyu.supabase.co';
 const SUPABASE_ANON_KEY =
@@ -16,6 +17,7 @@ export default function Home() {
   const [result, setResult] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showClaim, setShowClaim] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -42,8 +44,8 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    document.body.style.overflow = menuOpen ? 'hidden' : '';
-  }, [menuOpen]);
+    document.body.style.overflow = (menuOpen || showClaim) ? 'hidden' : '';
+  }, [menuOpen, showClaim]);
 
   const handleSearch = useCallback(async () => {
     const code = searchCode.toUpperCase().trim();
@@ -325,6 +327,9 @@ export default function Home() {
             </div>
           ))}
         </div>
+        <div style={{ textAlign: 'center', marginTop: '40px' }}>
+          <a href="/gallery" className="btn-verify-link" style={{ display: 'inline-block' }}>View Full Archive →</a>
+        </div>
       </section>
 
       <section className="section" id="benefits">
@@ -342,7 +347,7 @@ export default function Home() {
         <div className="cta-inner">
           <h2 className="cta-title">Have a ColorOut&#8482; tattoo?</h2>
           <p className="cta-text">If you&#39;ve received a ColorOut&#8482; tattoo and don&#39;t have your passport yet, request your certificate of authenticity and join the community.</p>
-          <button className="btn-primary" onClick={() => alert('Claim form coming soon.')}>Claim Your Passport</button>
+          <button className="btn-primary" onClick={() => setShowClaim(true)}>Claim Your Passport</button>
         </div>
       </section>
 
@@ -354,8 +359,10 @@ export default function Home() {
           <a href="https://mixiartstudio.us" target="_blank" rel="noopener noreferrer">Mixi Art Studio</a>
           <a href="https://patrickcat.com" target="_blank" rel="noopener noreferrer">patrickcat.com</a>
         </div>
-        <p className="footer-copy">&copy; 2025 Mixi Art Studio LLC. All rights reserved.</p>
+        <p className="footer-copy">&copy; 2026 Mixi Art Studio LLC. All rights reserved.</p>
       </footer>
+
+      {showClaim && <ClaimPassportForm onClose={() => setShowClaim(false)} />}
     </>
   );
 }
