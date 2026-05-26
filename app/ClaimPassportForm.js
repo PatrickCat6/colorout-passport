@@ -352,3 +352,4 @@ export default function ClaimPassportForm({ onClose }) {
       `}</style>
     </div>
   );
+}
