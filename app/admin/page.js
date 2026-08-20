@@ -3,13 +3,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 
-const SUPABASE_URL = 'https://ypwgutlxjdpszlkwzyyu.supabase.co';
-const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjQ1MjgsImV4cCI6MjA4NjUwMDUyOH0.yV4j8tZ6-eNmLKS7NlxfPtUaQ1-qn33yUaKtln-KMJo';
-const ADMIN_PASSWORD = 'colorout2025';
+function authHeaders(password) {
+  return {
+    Authorization: `Bearer ${password}`,
+    'Content-Type': 'application/json',
+  };
+}
 
 export default function AdminPanel() {
   const [authed, setAuthed] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [requests, setRequests] = useState([]);
@@ -18,165 +21,132 @@ export default function AdminPanel() {
   const [totalApproved, setTotalApproved] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // Restore session if user already logged in this tab
   useEffect(() => {
-    if (typeof window !== 'undefined' && sessionStorage.getItem('admin_auth') === 'true') {
+    if (typeof window === 'undefined') return;
+    const saved = sessionStorage.getItem('admin_token');
+    if (saved) {
+      setAdminPassword(saved);
       setAuthed(true);
     }
   }, []);
 
-  const fetchRequests = useCallback(async () => {
+  const fetchRequests = useCallback(async (token) => {
+    const pwd = token || adminPassword;
+    if (!pwd) return;
     setLoading(true);
     try {
-      const r = await fetch(
-        `${SUPABASE_URL}/rest/v1/passport_requests?status=eq.pending&order=created_at.desc`,
-        { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
-      );
+      const r = await fetch('/api/admin/requests', {
+        headers: authHeaders(pwd),
+      });
+      if (r.status === 401) {
+        handleLogout();
+        return;
+      }
       const data = await r.json();
-      setRequests(Array.isArray(data) ? data : []);
+      setRequests(Array.isArray(data.requests) ? data.requests : []);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [adminPassword]);
 
-  const fetchApprovedCount = useCallback(async () => {
+  const fetchApprovedCount = useCallback(async (token) => {
+    const pwd = token || adminPassword;
+    if (!pwd) return;
     try {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/passports?select=*`, {
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          Prefer: 'count=exact',
-        },
+      const r = await fetch('/api/admin/stats', {
+        headers: authHeaders(pwd),
       });
-      const c = r.headers.get('content-range');
-      if (c) {
-        const total = parseInt(c.split('/')[1]);
-        if (!isNaN(total)) setTotalApproved(total);
+      if (r.status === 401) return;
+      const data = await r.json();
+      if (typeof data.totalApproved === 'number') {
+        setTotalApproved(data.totalApproved);
       }
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [adminPassword]);
 
   useEffect(() => {
-    if (authed) {
-      fetchRequests();
-      fetchApprovedCount();
+    if (authed && adminPassword) {
+      fetchRequests(adminPassword);
+      fetchApprovedCount(adminPassword);
     }
-  }, [authed, fetchRequests, fetchApprovedCount]);
+  }, [authed, adminPassword, fetchRequests, fetchApprovedCount]);
 
   useEffect(() => {
     document.body.style.overflow = menuOpen ? 'hidden' : '';
   }, [menuOpen]);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (password === ADMIN_PASSWORD) {
-      setAuthed(true);
-      sessionStorage.setItem('admin_auth', 'true');
-      setLoginError('');
-    } else {
-      setLoginError('Invalid password');
+    setLoginError('');
+    try {
+      const r = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      const data = await r.json();
+      if (r.ok && data.success) {
+        setAdminPassword(password);
+        setAuthed(true);
+        sessionStorage.setItem('admin_token', password);
+        setPassword('');
+      } else {
+        setLoginError(data.error || 'Invalid password');
+      }
+    } catch (err) {
+      setLoginError('Login failed. Try again.');
     }
   };
 
   const handleLogout = () => {
     setAuthed(false);
-    sessionStorage.removeItem('admin_auth');
+    setAdminPassword('');
     setPassword('');
-  };
-
-  const generateNextCode = async () => {
-    try {
-      const r = await fetch(
-        `${SUPABASE_URL}/rest/v1/passports?select=code&order=created_at.desc&limit=1`,
-        { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
-      );
-      const data = await r.json();
-      if (data && data.length > 0) {
-        const parts = data[0].code.split('-');
-        if (parts.length === 3) {
-          const next = parseInt(parts[2]) + 1;
-          return `CO-${new Date().getFullYear()}-${next.toString().padStart(4, '0')}`;
-        }
-      }
-      return `CO-${new Date().getFullYear()}-0001`;
-    } catch (e) {
-      console.error(e);
-      return `CO-${new Date().getFullYear()}-0001`;
-    }
+    sessionStorage.removeItem('admin_token');
   };
 
   const approveRequest = async (request) => {
     setProcessingId(request.id);
     try {
-      const newCode = await generateNextCode();
-      const createResponse = await fetch(`${SUPABASE_URL}/rest/v1/passports`, {
+      const r = await fetch('/api/admin/approve', {
         method: 'POST',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-          Prefer: 'return=representation',
-        },
+        headers: authHeaders(adminPassword),
         body: JSON.stringify({
-          code: newCode,
+          id: request.id,
           holder_name: request.holder_name,
-          date: request.tattoo_date,
+          email: request.email,
+          tattoo_date: request.tattoo_date,
           city: request.city,
-          image_url: null,
         }),
       });
 
-      if (!createResponse.ok) {
-        const errorData = await createResponse.json();
-        throw new Error(`Failed to create passport: ${JSON.stringify(errorData)}`);
+      if (r.status === 401) {
+        handleLogout();
+        return;
       }
 
-      const updateResponse = await fetch(
-        `${SUPABASE_URL}/rest/v1/passport_requests?id=eq.${request.id}`,
-        {
-          method: 'PATCH',
-          headers: {
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-            Prefer: 'return=minimal',
-          },
-          body: JSON.stringify({
-            status: 'approved',
-            approved_at: new Date().toISOString(),
-            approved_passport_code: newCode,
-          }),
-        }
-      );
+      const data = await r.json();
 
-      if (!updateResponse.ok) throw new Error('Failed to update request');
-
-      try {
-        const emailResponse = await fetch('/api/send-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: request.email,
-            holderName: request.holder_name,
-            passportCode: newCode,
-            walletPassUrl: null,
-          }),
-        });
-        const emailResult = await emailResponse.json();
-        if (emailResult.success) {
-          alert(`✓ Approved & Email Sent\n\nCode: ${newCode}\nEmail: ${request.email}\n\nNext: upload photo to Storage and update image_url`);
+      if (data.success) {
+        if (data.emailSent) {
+          alert(
+            `✓ Approved & Email Sent\n\nCode: ${data.code}\nEmail: ${request.email}\n\nNext: upload photo to Storage and update image_url`
+          );
         } else {
-          alert(`✓ Passport Created: ${newCode}\n⚠ Email failed. Send manually to: ${request.email}`);
+          alert(
+            `✓ Passport Created: ${data.code}\n⚠ Email failed. Send manually to: ${request.email}`
+          );
         }
-      } catch (emailError) {
-        alert(`✓ Passport Created: ${newCode}\n⚠ Email error. Send manually to: ${request.email}`);
+        await fetchRequests();
+        await fetchApprovedCount();
+      } else {
+        alert(`Error: ${data.error || 'Unknown error'}`);
       }
-
-      await fetchRequests();
-      await fetchApprovedCount();
     } catch (error) {
       console.error(error);
       alert(`Error: ${error.message}`);
@@ -189,17 +159,23 @@ export default function AdminPanel() {
     if (!confirm(`Reject request from ${request.holder_name}?`)) return;
     setProcessingId(request.id);
     try {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/passport_requests?id=eq.${request.id}`, {
-        method: 'PATCH',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-          Prefer: 'return=minimal',
-        },
-        body: JSON.stringify({ status: 'rejected' }),
+      const r = await fetch('/api/admin/reject', {
+        method: 'POST',
+        headers: authHeaders(adminPassword),
+        body: JSON.stringify({ id: request.id }),
       });
-      if (r.ok) await fetchRequests();
+
+      if (r.status === 401) {
+        handleLogout();
+        return;
+      }
+
+      if (r.ok) {
+        await fetchRequests();
+      } else {
+        const data = await r.json().catch(() => ({}));
+        alert(data.error || 'Failed to reject');
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -398,7 +374,6 @@ export default function AdminPanel() {
         </div>
       </div>
 
-      {/* HEADER */}
       <header className="admin-header">
         <div>
           <div className="admin-eyebrow">&#9678; Internal Dashboard</div>
@@ -408,7 +383,7 @@ export default function AdminPanel() {
           <p className="admin-sub">ColorOut&#8482; Passport request management</p>
         </div>
         <div className="admin-actions">
-          <button onClick={fetchRequests} disabled={loading} className="action-btn">
+          <button onClick={() => fetchRequests()} disabled={loading} className="action-btn">
             <span className={`refresh-icon${loading ? ' spinning' : ''}`}>↻</span>
             Refresh
           </button>
@@ -419,7 +394,6 @@ export default function AdminPanel() {
         </div>
       </header>
 
-      {/* STATS */}
       <div className="stats-row">
         <div className="stat-card">
           <div className="stat-num">{String(requests.length).padStart(2, '0')}</div>
@@ -438,7 +412,6 @@ export default function AdminPanel() {
         </div>
       </div>
 
-      {/* REQUESTS */}
       <section className="requests-section">
         <div className="section-head">
           <div className="section-eyebrow">&middot; Pending Queue</div>
