@@ -4,9 +4,6 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import Script from 'next/script';
 import ClaimPassportForm from './ClaimPassportForm';
 
-const SUPABASE_URL = 'https://ypwgutlxjdpszlkwzyyu.supabase.co';
-const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjQ1MjgsImV4cCI6MjA4NjUwMDUyOH0.yV4j8tZ6-eNmLKS7NlxfPtUaQ1-qn33yUaKtln-KMJo';
 
 export default function Home() {
   const logoRef = useRef(null);
@@ -22,23 +19,12 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/passports?select=*`, {
-          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, Prefer: 'count=exact' },
-        });
-        const c = r.headers.get('content-range');
-        let total = 70;
-        if (c) total = parseInt(c.split('/')[1]) || 70;
-        else { const d = await r.json(); if (Array.isArray(d)) total = d.length; }
-        setTotalCount(total);
-      } catch (e) { console.error(e); }
-    })();
-    (async () => {
-      try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/passports?select=*&order=code.asc&limit=6`, {
-          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-        });
+        const r = await fetch('/api/passports');
         const data = await r.json();
-        if (Array.isArray(data)) setGallery(data);
+        if (data.success && Array.isArray(data.passports)) {
+          setTotalCount(data.passports.length);
+          setGallery(data.passports.slice(0, 6));
+        }
       } catch (e) { console.error(e); }
     })();
   }, []);
@@ -52,11 +38,9 @@ export default function Home() {
     if (!code) return;
     setResult(null); setNotFound(false);
     try {
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/passports?code=eq.${code}&select=*`, {
-        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' },
-      });
+      const r = await fetch(`/api/get-passport?code=${encodeURIComponent(code)}`);
       const data = await r.json();
-      if (data && data.length > 0) setResult(data[0]);
+      if (data.success && data.passport) setResult(data.passport);
       else setNotFound(true);
     } catch (e) { console.error(e); }
   }, [searchCode]);
