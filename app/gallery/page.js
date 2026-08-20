@@ -3,10 +3,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 
-const SUPABASE_URL = 'https://ypwgutlxjdpszlkwzyyu.supabase.co';
-const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjQ1MjgsImV4cCI6MjA4NjUwMDUyOH0.yV4j8tZ6-eNmLKS7NlxfPtUaQ1-qn33yUaKtln-KMJo';
-
 export default function GalleryPage() {
   const [passports, setPassports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -18,19 +14,19 @@ export default function GalleryPage() {
   const [selected, setSelected] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Fetch all
+  // Fetch all via server API (no client-side Supabase key)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const r = await fetch(
-          `${SUPABASE_URL}/rest/v1/passports?select=*&order=code.asc&limit=200`,
-          { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
-        );
+        const r = await fetch('/api/passports');
         const data = await r.json();
-        if (!cancelled && Array.isArray(data)) setPassports(data);
-        else if (!cancelled) setErrored(true);
+        if (!cancelled && data.success && Array.isArray(data.passports)) {
+          setPassports(data.passports);
+        } else if (!cancelled) {
+          setErrored(true);
+        }
       } catch (e) {
         if (!cancelled) setErrored(true);
       } finally {
