@@ -4,7 +4,22 @@ export async function POST(request) {
   try {
     const { email, holderName, passportCode, walletPassUrl } = await request.json();
 
-    const RESEND_API_KEY = 're_DvwcquNd_HhWWqMAPykBnjaJSy9orsFDd';
+    const RESEND_API_KEY = process.env.RESEND_API_KEY;
+
+    if (!RESEND_API_KEY) {
+      console.error('[send-email] RESEND_API_KEY not configured');
+      return NextResponse.json(
+        { success: false, error: 'Server not configured' },
+        { status: 500 }
+      );
+    }
+
+    if (!email || !holderName || !passportCode) {
+      return NextResponse.json(
+        { success: false, error: 'Missing required fields: email, holderName, passportCode' },
+        { status: 400 }
+      );
+    }
 
     const emailHtml = `
 <!DOCTYPE html>
@@ -146,14 +161,14 @@ export async function POST(request) {
         <strong>Next Steps:</strong><br>
         1. Save this email for your records<br>
         ${walletPassUrl ? '2. Add your passport to your phone wallet<br>3.' : '2.'} Visit the link above to see your verified passport<br>
-        ${walletPassUrl ? '4.' : '3.'} Share your ColorOut™ story on social media (tag @patrickcat6)
+        ${walletPassUrl ? '4.' : '3.'} Share your ColorOut™ story on social media (tag @patrickcat_art)
       </p>
     </div>
     
     <div class="footer">
       <p>ColorOut™ by Patrick Cat<br>
       Preserving color as preserving humanity</p>
-      <p style="font-size: 12px; color: #555;">© 2025 Mixi Art Studio. All rights reserved.</p>
+      <p style="font-size: 12px; color: #555;">© 2026 Mixi Art Studio. All rights reserved.</p>
     </div>
   </div>
 </body>
@@ -163,25 +178,26 @@ export async function POST(request) {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${RESEND_API_KEY}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         from: 'ColorOut Passport <passport@coloroutpassport.com>',
         to: [email],
         subject: `🎨 Your ColorOut™ Passport is Ready! (${passportCode})`,
-        html: emailHtml
-      })
+        html: emailHtml,
+      }),
     });
 
     const data = await response.json();
 
     if (response.ok) {
       return NextResponse.json({ success: true, data });
-    } else {
-      return NextResponse.json({ success: false, error: data }, { status: 400 });
     }
+
+    return NextResponse.json({ success: false, error: data }, { status: 400 });
   } catch (error) {
+    console.error('[send-email] Error:', error.message);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
