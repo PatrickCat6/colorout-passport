@@ -1,10 +1,6 @@
 'use client';
 
-import { useState } from 'react';
-
-const SUPABASE_URL = 'https://ypwgutlxjdpszlkwzyyu.supabase.co';
-const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjQ1MjgsImV4cCI6MjA4NjUwMDUyOH0.yV4j8tZ6-eNmLKS7NlxfPtUaQ1-qn33yUaKtln-KMJo';
+import { useState, useEffect } from 'react';
 
 export default function ClaimPassportForm({ onClose }) {
   const [formData, setFormData] = useState({
@@ -21,28 +17,27 @@ export default function ClaimPassportForm({ onClose }) {
     setStatus('loading');
     setErrorMessage('');
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/passport_requests`, {
+      const response = await fetch('/api/claim-passport', {
         method: 'POST',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-          Prefer: 'return=minimal',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           holder_name: formData.holder_name,
           email: formData.email,
           tattoo_date: formData.tattoo_date,
           city: formData.city,
-          status: 'pending',
         }),
       });
-      if (response.ok) setStatus('success');
-      else throw new Error('Failed to submit request');
+
+      if (response.ok) {
+        setStatus('success');
+      } else {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to submit request');
+      }
     } catch (error) {
       console.error(error);
       setStatus('error');
-      setErrorMessage('There was an error submitting your request. Please try again.');
+      setErrorMessage(error.message || 'There was an error submitting your request. Please try again.');
     }
   };
 
@@ -51,9 +46,13 @@ export default function ClaimPassportForm({ onClose }) {
   };
 
   // Close on Escape
-  if (typeof window !== 'undefined') {
-    window.onkeydown = (e) => { if (e.key === 'Escape' && onClose) onClose(); };
-  }
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape' && onClose) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   return (
     <div className="claim-modal" onClick={onClose} role="dialog" aria-modal="true">
@@ -65,7 +64,7 @@ export default function ClaimPassportForm({ onClose }) {
             <div className="success-eyebrow">&#10003; Request Received</div>
             <h2 className="claim-title">Welcome to<br />The Archive</h2>
             <p className="claim-body">
-              Your ColorOut&#8482; Passport request has been received. Patrick will review your submission and you&apos;ll receive an email with your unique passport code once approved.
+              Your ColorOut&#8482; Passport request has been received. Patrick will review your submission and you'll receive an email with your unique passport code once approved.
             </p>
             <button onClick={onClose} className="claim-submit">Close</button>
           </div>
@@ -134,7 +133,7 @@ export default function ClaimPassportForm({ onClose }) {
               </button>
 
               <p className="claim-foot">
-                Your request will be reviewed by Patrick Cat. You&apos;ll receive an email with your unique ColorOut&#8482; passport code once approved.
+                Your request will be reviewed by Patrick Cat. You'll receive an email with your unique ColorOut&#8482; passport code once approved.
               </p>
             </form>
           </>
