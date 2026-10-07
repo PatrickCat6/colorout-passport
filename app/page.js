@@ -4,6 +4,9 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import Script from 'next/script';
 import ClaimPassportForm from './ClaimPassportForm';
 
+const SUPABASE_URL = 'https://ypwgutlxjdpszlkwzyyu.supabase.co';
+const SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjQ1MjgsImV4cCI6MjA4NjUwMDUyOH0.yV4j8tZ6-eNmLKS7NlxfPtUaQ1-qn33yUaKtln-KMJo';
 
 export default function Home() {
   const logoRef = useRef(null);
@@ -19,12 +22,23 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch('/api/passports');
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/passports?select=*`, {
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, Prefer: 'count=exact' },
+        });
+        const c = r.headers.get('content-range');
+        let total = 70;
+        if (c) total = parseInt(c.split('/')[1]) || 70;
+        else { const d = await r.json(); if (Array.isArray(d)) total = d.length; }
+        setTotalCount(total);
+      } catch (e) { console.error(e); }
+    })();
+    (async () => {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/passports?select=*&order=code.asc&limit=6`, {
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        });
         const data = await r.json();
-        if (data.success && Array.isArray(data.passports)) {
-          setTotalCount(data.passports.length);
-          setGallery(data.passports.slice(0, 6));
-        }
+        if (Array.isArray(data)) setGallery(data);
       } catch (e) { console.error(e); }
     })();
   }, []);
@@ -38,9 +52,11 @@ export default function Home() {
     if (!code) return;
     setResult(null); setNotFound(false);
     try {
-      const r = await fetch(`/api/get-passport?code=${encodeURIComponent(code)}`);
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/passports?code=eq.${code}&select=*`, {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' },
+      });
       const data = await r.json();
-      if (data.success && data.passport) setResult(data.passport);
+      if (data && data.length > 0) setResult(data[0]);
       else setNotFound(true);
     } catch (e) { console.error(e); }
   }, [searchCode]);
@@ -160,10 +176,9 @@ export default function Home() {
       <div className="spectrum-bar" />
 
       <nav>
-        <div className="nav-logo" style={{ fontSize: '17px' }}>COLOROUT&#8482;</div>
+        <div className="nav-logo" style={{ fontSize: '25px' }}>COLOROUT&#8482;</div>
         <div className="nav-links">
           <a href="#about">About</a>
-          <a href="#verify">Verify</a>
           <a href="/gallery">Gallery</a>
           <a href="#benefits">Benefits</a>
         </div>
@@ -177,7 +192,6 @@ export default function Home() {
         </div>
         <div className="mobile-menu-links">
           <a href="#about" onClick={() => setMenuOpen(false)}>About</a>
-          <a href="#verify" onClick={() => setMenuOpen(false)}>Verify</a>
           <a href="/gallery" onClick={() => setMenuOpen(false)}>Gallery</a>
           <a href="#benefits" onClick={() => setMenuOpen(false)}>Benefits</a>
         </div>
@@ -211,7 +225,6 @@ export default function Home() {
             >
               ✦ <span style={{ color: 'rgb(255, 255, 255)' }}>INSTAGRAM</span>
             </a>
-            <a href="#verify" className="btn-verify-link">Verify Passport</a>
           </div>
         </div>
         <div className="hero-right">
@@ -259,39 +272,6 @@ export default function Home() {
           <div className="concept-card"><div className="concept-card-number">02</div><h3>Chromatic Saturation</h3><p>Layers of vibrant color are built using Patrick&#39;s signature spectrum, a full-body approach where color transcends illustration and becomes an immersive experience.</p></div>
           <div className="concept-card"><div className="concept-card-number">03</div><h3>Passport Issuance</h3><p>Upon completion, each work is documented with a unique ColorOut&#8482; Passport code, photograph, date, and location, creating a permanent certificate of provenance.</p></div>
         </div>
-      </section>
-
-      <section className="verify-section" id="verify">
-        <div className="section-label green">Authenticate<span style={{ color: '#ff2d7b' }}></span></div>
-        <h2 className="section-title">Verify Your Passport</h2>
-        <p className="section-body">Enter your unique ColorOut&#8482; code to verify the authenticity of your tattoo and access your certificate of provenance.</p>
-        <div className="search-container">
-          <input
-            type="text"
-            className="search-input"
-            placeholder="CO-2026-0001"
-            value={searchCode}
-            onChange={(e) => setSearchCode(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
-          />
-          <button className="search-button" onClick={handleSearch}>&#128269; Verify</button>
-        </div>
-        {result && (
-          <div className="result-card visible">
-            {result.image_url && <img src={result.image_url} alt={`ColorOut ${result.code}`} />}
-            <div className="result-verified">&#10003; Verified Authentic</div>
-            <div className="result-code">{result.code}</div>
-            <div className="result-meta">
-              <div className="result-meta-item"><label>Date</label><span>{result.date || '...'}</span></div>
-              <div className="result-meta-item"><label>Location</label><span>{result.city || '...'}</span></div>
-            </div>
-            <div className="result-holder">
-              <span>{result.holder_name ? `Holder: ${result.holder_name}` : ''}</span>
-              <p style={{ fontSize: '12px', color: 'rgba(10,10,10,0.35)', marginTop: '8px' }}>This certificate verifies the authenticity of a ColorOut&#8482; tattoo by Patrick Cat.</p>
-            </div>
-          </div>
-        )}
-        {notFound && <div className="result-not-found visible">Passport code not found. Please verify your code and try again.</div>}
       </section>
 
       <section className="section" id="gallery">
