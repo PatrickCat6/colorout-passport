@@ -1,37 +1,53 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import Script from 'next/script';
 
-const SUPABASE_URL = 'https://ypwgutlxjdpszlkwzyyu.supabase.co';
-const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwd2d1dGx4amRwc3psa3d6eXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjQ1MjgsImV4cCI6MjA4NjUwMDUyOH0.yV4j8tZ6-eNmLKS7NlxfPtUaQ1-qn33yUaKtln-KMJo';
+/* ── layout helpers ── */
+const LAYOUT_PATTERNS = [
+  // Each pattern defines { w, h, x, y, speed, rotate } as percentages / multipliers
+  // w/h as vw-based widths, x as %, y is auto-stacked
+  { w: 38, speed: 0.15, offsetX: 5, rotate: -2.5 },
+  { w: 26, speed: -0.25, offsetX: 58, rotate: 1.8 },
+  { w: 30, speed: 0.35, offsetX: 32, rotate: -1.2 },
+  { w: 22, speed: -0.15, offsetX: 8, rotate: 2.5 },
+  { w: 34, speed: 0.28, offsetX: 52, rotate: -0.8 },
+  { w: 28, speed: -0.32, offsetX: 18, rotate: 1.5 },
+  { w: 40, speed: 0.2, offsetX: 42, rotate: -1.8 },
+  { w: 24, speed: -0.22, offsetX: 68, rotate: 2.2 },
+  { w: 32, speed: 0.3, offsetX: 2, rotate: -2.0 },
+  { w: 26, speed: -0.18, offsetX: 48, rotate: 1.0 },
+  { w: 36, speed: 0.25, offsetX: 22, rotate: -1.5 },
+  { w: 20, speed: -0.28, offsetX: 72, rotate: 2.8 },
+];
 
 export default function GalleryPage() {
   const [passports, setPassports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errored, setErrored] = useState(false);
-  const [city, setCity] = useState('all');
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState('code-asc');
-  const [view, setView] = useState('comfy'); // comfy | dense | list
+  const [city, setCity] = useState('all');
   const [selected, setSelected] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [gsapReady, setGsapReady] = useState(false);
+  const scatterRef = useRef(null);
+  const photoRefs = useRef([]);
+  const headerRef = useRef(null);
 
-  // Fetch all
+  /* ── data ── */
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const r = await fetch(
-          `${SUPABASE_URL}/rest/v1/passports?select=*&order=code.asc&limit=200`,
-          { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
-        );
+        const r = await fetch('/api/passports');
         const data = await r.json();
-        if (!cancelled && Array.isArray(data)) setPassports(data);
-        else if (!cancelled) setErrored(true);
-      } catch (e) {
+        if (!cancelled && data.success && Array.isArray(data.passports)) {
+          setPassports(data.passports);
+        } else if (!cancelled) setErrored(true);
+      } catch {
         if (!cancelled) setErrored(true);
       } finally {
         if (!cancelled) setLoading(false);
@@ -44,13 +60,13 @@ export default function GalleryPage() {
     document.body.style.overflow = menuOpen || selected ? 'hidden' : '';
   }, [menuOpen, selected]);
 
-  // Esc closes modal
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') setSelected(null); };
+    const onKey = (e) => { if (e.key === 'Escape') { setSelected(null); setFilterOpen(false); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  /* ── filter logic ── */
   const cities = useMemo(() => {
     const counts = {};
     passports.forEach((p) => {
@@ -71,36 +87,106 @@ export default function GalleryPage() {
         (p.holder_name || '').toLowerCase().includes(q)
       );
     }
-    list.sort((a, b) => {
-      if (sort === 'code-asc') return (a.code || '').localeCompare(b.code || '');
-      if (sort === 'code-desc') return (b.code || '').localeCompare(a.code || '');
-      if (sort === 'date-desc') return (b.date || '').localeCompare(a.date || '');
-      if (sort === 'date-asc') return (a.date || '').localeCompare(b.date || '');
-      return 0;
-    });
     return list;
-  }, [passports, city, search, sort]);
+  }, [passports, city, search]);
 
   const total = passports.length;
   const totalStr = String(total).padStart(2, '0');
-
   const openModal = useCallback((p) => setSelected(p), []);
   const closeModal = useCallback(() => setSelected(null), []);
 
+  /* ── GSAP parallax ── */
+  useEffect(() => {
+    if (!gsapReady || loading || filtered.length === 0) return;
+    if (typeof window === 'undefined' || !window.gsap || !window.ScrollTrigger) return;
+
+    const gsap = window.gsap;
+    const ScrollTrigger = window.ScrollTrigger;
+    gsap.registerPlugin(ScrollTrigger);
+
+    // Kill old triggers
+    ScrollTrigger.getAll().forEach(t => t.kill());
+
+    // Header parallax
+    if (headerRef.current) {
+      gsap.to(headerRef.current.querySelector('.gal-title'), {
+        y: -60,
+        scrollTrigger: {
+          trigger: headerRef.current,
+          start: 'top top',
+          end: 'bottom top',
+          scrub: 1.2,
+        },
+      });
+    }
+
+    // Photo parallax — each photo gets its own speed
+    photoRefs.current.forEach((el) => {
+      if (!el) return;
+      const speed = parseFloat(el.dataset.speed || 0);
+      const rotate = parseFloat(el.dataset.rotate || 0);
+
+      gsap.to(el, {
+        y: speed * 300,
+        rotation: rotate * 0.5,
+        ease: 'none',
+        scrollTrigger: {
+          trigger: el,
+          start: 'top bottom',
+          end: 'bottom top',
+          scrub: 1.5,
+        },
+      });
+    });
+
+    // Stagger entrance
+    gsap.fromTo(
+      photoRefs.current.filter(Boolean),
+      { opacity: 0, y: 80, scale: 0.92 },
+      {
+        opacity: 1, y: 0, scale: 1,
+        duration: 1,
+        ease: 'power3.out',
+        stagger: 0.08,
+        scrollTrigger: {
+          trigger: scatterRef.current,
+          start: 'top 85%',
+        },
+      }
+    );
+
+    return () => ScrollTrigger.getAll().forEach(t => t.kill());
+  }, [gsapReady, loading, filtered]);
+
   return (
     <>
+      {/* GSAP */}
+      <Script
+        src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"
+        strategy="afterInteractive"
+        onLoad={() => {}}
+      />
+      <Script
+        src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"
+        strategy="afterInteractive"
+        onLoad={() => setGsapReady(true)}
+      />
+
       <div className="spectrum-bar" />
 
+      {/* NAV */}
       <nav>
-        <div className="nav-logo" style={{ fontSize: '25px' }}>COLOROUT&#8482;</div>
+        <div className="nav-logo" style={{ fontSize: '17px' }}>COLOROUT&#8482;</div>
         <div className="nav-links">
           <Link href="/#about">About</Link>
-          <Link href="/gallery" className="active" style={{ color: 'var(--white)' }}>Gallery</Link>
+          <Link href="/#verify">Verify</Link>
+          <Link href="/gallery" className="active" style={{ color: 'var(--fg)' }}>Gallery</Link>
           <Link href="/#benefits">Benefits</Link>
         </div>
         <button className="nav-menu-btn" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>MENU</button>
       </nav>
 
+      {/* MOBILE MENU */}
       <div className={`mobile-menu${menuOpen ? ' open' : ''}`} aria-hidden={!menuOpen}>
         <div className="mobile-menu-header">
           <div className="nav-logo">ColorOut&#8482; <span className="nav-artist">by Patrick Cat</span></div>
@@ -108,6 +194,7 @@ export default function GalleryPage() {
         </div>
         <div className="mobile-menu-links">
           <Link href="/#about" onClick={() => setMenuOpen(false)}>About</Link>
+          <Link href="/#verify" onClick={() => setMenuOpen(false)}>Verify</Link>
           <Link href="/gallery" onClick={() => setMenuOpen(false)}>Gallery</Link>
           <Link href="/#benefits" onClick={() => setMenuOpen(false)}>Benefits</Link>
         </div>
@@ -118,166 +205,165 @@ export default function GalleryPage() {
       </div>
 
       {/* HEADER */}
-      <header className="gallery-header">
-        <div>
-          <div className="gallery-eyebrow">The Archive &middot; 2020 — 2026</div>
-          <h1 className="gallery-title">
-            Gallery<span className="ar">/{totalStr}</span>
+      <header className="gal-header" ref={headerRef}>
+        <div className="gal-header-inner">
+          <div className="gal-eyebrow">
+            <span className="gal-eyebrow-line" />
+            The Archive &middot; {totalStr} Pieces
+          </div>
+          <h1 className="gal-title">
+            <span className="gal-title-thin">The</span> ColorOut<span className="gal-title-sup">&#8482;</span>{' '}
+            <span className="gal-title-spectrum">Archive</span>
           </h1>
+          <p className="gal-subtitle">
+            Freehand chromatic tattoos by Patrick Cat. Each piece is authenticated,
+            numbered, and recorded in the permanent ColorOut&#8482; registry.
+          </p>
         </div>
-        <div className="gallery-meta">
-          <strong>{totalStr}</strong>
-          Authenticated<br />ColorOut&#8482; Tattoos
-        </div>
+
+        {/* Floating filter pill */}
+        <button
+          className="gal-filter-toggle"
+          onClick={() => setFilterOpen(!filterOpen)}
+          aria-expanded={filterOpen}
+        >
+          <span className="gal-filter-icon">&#9776;</span>
+          Filter{city !== 'all' ? `: ${city}` : ''}{search ? ` · "${search}"` : ''}
+          <span className="gal-filter-count">{filtered.length}</span>
+        </button>
       </header>
 
-      {/* TOOLBAR */}
-      <div className="toolbar">
-        <div className="toolbar-left">
-          <button
-            className={`filter-chip${city === 'all' ? ' active' : ''}`}
-            onClick={() => setCity('all')}
-          >
-            All <span className="count">{total}</span>
-          </button>
-          {cities.map(([c, n]) => (
-            <button
-              key={c}
-              className={`filter-chip${city === c ? ' active' : ''}`}
-              onClick={() => setCity(c)}
-            >
-              {c} <span className="count">{n}</span>
-            </button>
-          ))}
-        </div>
-        <div className="toolbar-right">
-          <div className="toolbar-search">
+      {/* FILTER DRAWER */}
+      <div className={`gal-filter-drawer${filterOpen ? ' open' : ''}`}>
+        <div className="gal-filter-body">
+          <div className="gal-filter-section">
+            <div className="gal-filter-label">Search</div>
             <input
               type="text"
-              placeholder="Search code..."
+              className="gal-search-input"
+              placeholder="Code, city, or name..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <select
-            className="sort-select"
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-            aria-label="Sort"
-          >
-            <option value="code-asc">Code ↑</option>
-            <option value="code-desc">Code ↓</option>
-            <option value="date-desc">Newest</option>
-            <option value="date-asc">Oldest</option>
-          </select>
-          <div className="view-toggle">
-            {['comfy', 'dense', 'list'].map((v) => (
+          <div className="gal-filter-section">
+            <div className="gal-filter-label">Location</div>
+            <div className="gal-chips">
               <button
-                key={v}
-                className={`view-btn${view === v ? ' active' : ''}`}
-                onClick={() => setView(v)}
+                className={`gal-chip${city === 'all' ? ' active' : ''}`}
+                onClick={() => setCity('all')}
               >
-                {v === 'comfy' ? 'Grid' : v === 'dense' ? 'Dense' : 'List'}
+                All <span>{total}</span>
               </button>
-            ))}
+              {cities.map(([c, n]) => (
+                <button
+                  key={c}
+                  className={`gal-chip${city === c ? ' active' : ''}`}
+                  onClick={() => setCity(c)}
+                >
+                  {c} <span>{n}</span>
+                </button>
+              ))}
+            </div>
           </div>
+          <button className="gal-filter-close" onClick={() => setFilterOpen(false)}>Done</button>
         </div>
       </div>
 
-      {/* GRID */}
-      <div className="gallery-wrap">
+      {/* SCATTERED PHOTOS */}
+      <section className="gal-scatter-wrap" ref={scatterRef}>
         {loading ? (
-          <div className={`grid ${view}`}>
-            {Array.from({ length: 24 }).map((_, i) => (
-              <div key={i} className="skeleton" />
-            ))}
+          <div className="gal-loading">
+            <div className="gal-loading-bar" />
+            <span>Loading archive...</span>
           </div>
         ) : errored ? (
-          <div className="state error">Could not load archive. Please refresh.</div>
+          <div className="gal-state error">Could not load archive. Please refresh.</div>
         ) : filtered.length === 0 ? (
-          <div className="state">No passports match your filter.</div>
+          <div className="gal-state">No passports match your filter.</div>
         ) : (
-          <div className={`grid ${view}`}>
-            {filtered.map((p, i) => (
-              <button
-                key={p.id || p.code}
-                className="tile"
-                onClick={() => openModal(p)}
-                type="button"
-              >
-                {view === 'list' ? (
-                  <>
+          <div className="gal-scatter">
+            {filtered.map((p, i) => {
+              const pattern = LAYOUT_PATTERNS[i % LAYOUT_PATTERNS.length];
+              return (
+                <div
+                  key={p.id || p.code}
+                  className="gal-photo"
+                  ref={(el) => (photoRefs.current[i] = el)}
+                  data-speed={pattern.speed}
+                  data-rotate={pattern.rotate}
+                  style={{
+                    '--photo-w': `${pattern.w}vw`,
+                    '--photo-x': `${pattern.offsetX}%`,
+                    marginLeft: `${pattern.offsetX}%`,
+                    maxWidth: `${pattern.w}vw`,
+                  }}
+                  onClick={() => openModal(p)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && openModal(p)}
+                >
+                  <div className="gal-photo-frame">
                     {p.image_url ? (
-                      <img src={p.image_url} loading="lazy" alt={`ColorOut ${p.code}`} />
+                      <img
+                        src={p.image_url}
+                        loading={i < 6 ? 'eager' : 'lazy'}
+                        alt={`ColorOut ${p.code}`}
+                        draggable={false}
+                      />
                     ) : (
-                      <div className="list-img-fallback" />
+                      <div className="gal-photo-fallback" />
                     )}
-                    <div className="list-info">
-                      <div className="lc">{p.code || '—'}</div>
-                      <div className="lm">
-                        {(p.city || 'Unknown')} &middot; {p.date || '—'}
-                        {p.holder_name ? ` · ${p.holder_name}` : ''}
-                      </div>
-                    </div>
-                    <div className="list-arrow">→</div>
-                  </>
-                ) : (
-                  <>
-                    <div className="tile-corner">{p.code || '—'}</div>
-                    <div className="tile-index">
-                      {String(i + 1).padStart(2, '0')}/{totalStr}
-                    </div>
-                    {p.image_url ? (
-                      <img src={p.image_url} loading="lazy" alt={`ColorOut ${p.code}`} />
-                    ) : (
-                      <div className="tile-fallback" />
-                    )}
-                    <div className="tile-overlay">
-                      <div className="tile-code">{p.code}</div>
-                      <div className="tile-meta">
-                        ◉ {p.city || 'Unknown'}
-                        {p.date ? ` · ${(p.date || '').slice(0, 4)}` : ''}
-                      </div>
-                    </div>
-                    <div className="tile-bar" />
-                  </>
-                )}
-              </button>
-            ))}
+                    <div className="gal-photo-glow" />
+                  </div>
+                  <div className="gal-photo-caption">
+                    <span className="gal-photo-code">{p.code || '---'}</span>
+                    <span className="gal-photo-loc">{p.city || 'Unknown'}{p.date ? ` · ${p.date.slice(0, 4)}` : ''}</span>
+                  </div>
+                  <div className="gal-photo-index">
+                    {String(i + 1).padStart(2, '0')}/{totalStr}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
-      </div>
+      </section>
 
       {/* MODAL */}
       {selected && (
-        <div className="modal open" onClick={closeModal} role="dialog" aria-modal="true">
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={closeModal} aria-label="Close">✕</button>
-            <div className="modal-img">
-              {selected.image_url && <img src={selected.image_url} alt={`ColorOut ${selected.code}`} />}
+        <div className="gal-modal" onClick={closeModal} role="dialog" aria-modal="true">
+          <div className="gal-modal-card" onClick={(e) => e.stopPropagation()}>
+            <button className="gal-modal-close" onClick={closeModal} aria-label="Close">&#10005;</button>
+            <div className="gal-modal-img">
+              {selected.image_url && (
+                <img src={selected.image_url} alt={`ColorOut ${selected.code}`} />
+              )}
             </div>
-            <div className="modal-info">
-              <span className="modal-eyebrow">✓ Verified Authentic</span>
-              <div className="modal-code">{selected.code || '—'}</div>
-              <div className="modal-meta">
-                <div className="modal-meta-item"><label>Date</label><span>{selected.date || '—'}</span></div>
-                <div className="modal-meta-item"><label>Location</label><span>{selected.city || '—'}</span></div>
-                <div className="modal-meta-item"><label>Holder</label><span>{selected.holder_name || 'Private'}</span></div>
-                <div className="modal-meta-item">
+            <div className="gal-modal-info">
+              <span className="gal-modal-badge">&#10003; Verified Authentic</span>
+              <div className="gal-modal-code">{selected.code || '---'}</div>
+              <div className="gal-modal-meta">
+                <div className="gal-modal-meta-item"><label>Date</label><span>{selected.date || '---'}</span></div>
+                <div className="gal-modal-meta-item"><label>Location</label><span>{selected.city || '---'}</span></div>
+                <div className="gal-modal-meta-item"><label>Holder</label><span>{selected.holder_name || 'Private'}</span></div>
+                <div className="gal-modal-meta-item">
                   <label>Index</label>
                   <span>
-                    {String(passports.findIndex((p) => (p.id || p.code) === (selected.id || selected.code)) + 1).padStart(2, '0')} / {totalStr}
+                    {String(passports.findIndex((pp) => (pp.id || pp.code) === (selected.id || selected.code)) + 1).padStart(2, '0')} / {totalStr}
                   </span>
                 </div>
               </div>
-              <p className="modal-note">
-                This certificate verifies the authenticity of a ColorOut&#8482; tattoo by Patrick Cat. Each piece is freehand, fully chromatic, and recorded in the permanent ColorOut&#8482; archive.
+              <p className="gal-modal-note">
+                This certificate verifies the authenticity of a ColorOut&#8482; tattoo by Patrick Cat.
+                Each piece is freehand, fully chromatic, and recorded in the permanent ColorOut&#8482; archive.
               </p>
             </div>
           </div>
         </div>
       )}
 
+      {/* FOOTER */}
       <footer>
         <div className="footer-brand">ColorOut&#8482;</div>
         <div className="footer-sub">Preserving Color as Preserving Humanity</div>
@@ -290,444 +376,412 @@ export default function GalleryPage() {
       </footer>
 
       <style jsx>{`
-        .gallery-header {
-          padding: 140px 40px 40px;
-          max-width: 1400px;
-          margin: 0 auto;
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 40px;
-          align-items: end;
-          border-bottom: 1px solid rgba(10, 10, 10, 0.06);
+        /* ── GALLERY HEADER ── */
+        .gal-header {
+          min-height: 70vh;
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-end;
+          padding: 0 60px 60px;
+          position: relative;
+          overflow: hidden;
         }
-        .gallery-eyebrow {
+        .gal-header::before {
+          content: '';
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          width: 100%;
+          height: 1px;
+          background: linear-gradient(90deg, transparent, var(--border-hover), transparent);
+        }
+        .gal-header-inner {
+          max-width: 900px;
+        }
+        .gal-eyebrow {
           font-family: var(--font-body);
           font-size: 11px;
-          letter-spacing: 3px;
+          letter-spacing: 4px;
           text-transform: uppercase;
           color: var(--magenta);
-          margin-bottom: 18px;
+          margin-bottom: 24px;
           display: flex;
           align-items: center;
           gap: 12px;
         }
-        .gallery-eyebrow::before {
-          content: '';
+        .gal-eyebrow-line {
+          display: inline-block;
           width: 30px;
           height: 1px;
           background: var(--magenta);
         }
-        .gallery-title {
-          font-family: var(--font-body);
-          font-weight: 800;
-          font-size: clamp(60px, 9vw, 140px);
-          line-height: 0.85;
+        .gal-title {
+          font-family: var(--font-display);
+          font-weight: 700;
+          font-size: clamp(52px, 10vw, 130px);
+          line-height: 0.88;
           letter-spacing: -4px;
           text-transform: uppercase;
-          color: var(--white);
+          color: var(--fg);
+          margin-bottom: 24px;
         }
-        .gallery-title :global(.ar) {
-          font-size: 0.28em;
-          vertical-align: top;
-          opacity: 0.45;
-          font-weight: 500;
-          letter-spacing: 1px;
-          margin-left: 8px;
+        .gal-title-thin {
+          font-weight: 400;
+          color: var(--fg-muted);
         }
-        .gallery-meta {
-          text-align: right;
+        .gal-title-sup {
+          font-size: 0.3em;
+          vertical-align: super;
+          opacity: 0.4;
+          letter-spacing: 0;
+        }
+        .gal-title-spectrum {
+          background: var(--gradient-spectrum);
+          background-size: 200% 200%;
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          animation: spectrumFlow 4s linear infinite;
+        }
+        .gal-subtitle {
+          font-family: var(--font-body);
+          font-size: 15px;
+          color: var(--fg-muted);
+          line-height: 1.7;
+          max-width: 500px;
+        }
+
+        /* ── FILTER TOGGLE ── */
+        .gal-filter-toggle {
+          position: fixed;
+          bottom: 32px;
+          right: 32px;
+          z-index: 80;
+          padding: 14px 24px;
+          background: rgba(12, 12, 12, 0.9);
+          backdrop-filter: blur(20px);
+          border: 1px solid var(--border-hover);
+          color: var(--fg);
           font-family: var(--font-body);
           font-size: 12px;
           letter-spacing: 2px;
           text-transform: uppercase;
-          color: rgba(10, 10, 10, 0.45);
-          line-height: 1.8;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          transition: all 0.3s;
+          border-radius: 999px;
         }
-        .gallery-meta strong {
-          display: block;
-          font-size: 48px;
-          font-weight: 800;
-          color: var(--white);
-          letter-spacing: -1px;
-          line-height: 1;
-          margin-bottom: 6px;
+        .gal-filter-toggle:hover {
+          border-color: var(--cyan);
+          background: rgba(0, 229, 255, 0.08);
+        }
+        .gal-filter-icon {
+          font-size: 14px;
+          opacity: 0.6;
+        }
+        .gal-filter-count {
+          background: var(--cyan);
+          color: var(--bg);
+          font-size: 10px;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 999px;
+          letter-spacing: 0;
         }
 
-        .toolbar {
-          max-width: 1400px;
-          margin: 0 auto;
-          padding: 24px 40px;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 24px;
-          align-items: center;
-          justify-content: space-between;
-          border-bottom: 1px solid rgba(10, 10, 10, 0.06);
-          position: sticky;
-          top: 60px;
-          background: rgba(255, 255, 255, 0.85);
-          backdrop-filter: blur(20px);
-          z-index: 50;
+        /* ── FILTER DRAWER ── */
+        .gal-filter-drawer {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          z-index: 90;
+          background: rgba(5, 5, 5, 0.95);
+          backdrop-filter: blur(30px);
+          border-top: 1px solid var(--border-hover);
+          transform: translateY(100%);
+          transition: transform 0.4s cubic-bezier(0.65, 0, 0.35, 1);
+          max-height: 50vh;
+          overflow-y: auto;
         }
-        .toolbar-left {
+        .gal-filter-drawer.open {
+          transform: translateY(0);
+        }
+        .gal-filter-body {
+          padding: 32px 40px 40px;
+          max-width: 900px;
+          margin: 0 auto;
+        }
+        .gal-filter-section {
+          margin-bottom: 24px;
+        }
+        .gal-filter-label {
+          font-family: var(--font-body);
+          font-size: 9px;
+          letter-spacing: 3px;
+          text-transform: uppercase;
+          color: var(--fg-dim);
+          margin-bottom: 10px;
+        }
+        .gal-search-input {
+          width: 100%;
+          padding: 14px 18px;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid var(--border);
+          font-family: var(--font-body);
+          font-size: 14px;
+          color: var(--fg);
+          outline: none;
+          transition: border-color 0.3s;
+          border-radius: 0;
+        }
+        .gal-search-input::placeholder {
+          color: var(--fg-dim);
+        }
+        .gal-search-input:focus {
+          border-color: var(--cyan);
+        }
+        .gal-chips {
           display: flex;
           flex-wrap: wrap;
           gap: 8px;
-          align-items: center;
         }
-        .filter-chip {
-          font-family: var(--font-body);
-          font-size: 11px;
-          letter-spacing: 2px;
-          text-transform: uppercase;
-          font-weight: 600;
+        .gal-chip {
           padding: 8px 16px;
           background: transparent;
-          border: 1px solid rgba(10, 10, 10, 0.12);
-          color: rgba(10, 10, 10, 0.55);
+          border: 1px solid var(--border);
+          color: var(--fg-muted);
+          font-family: var(--font-body);
+          font-size: 11px;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
           cursor: pointer;
           transition: all 0.25s;
-          border-radius: 0;
+          border-radius: 999px;
         }
-        .filter-chip:hover {
-          border-color: var(--white);
-          color: var(--white);
-        }
-        .filter-chip.active {
-          background: var(--white);
-          color: var(--black);
-          border-color: var(--white);
-        }
-        .filter-chip :global(.count) {
+        .gal-chip span {
           font-size: 9px;
-          margin-left: 6px;
-          opacity: 0.6;
-          font-weight: 500;
+          opacity: 0.5;
+          margin-left: 4px;
         }
-
-        .toolbar-right {
-          display: flex;
-          gap: 12px;
-          align-items: center;
+        .gal-chip:hover {
+          border-color: var(--fg);
+          color: var(--fg);
         }
-        .toolbar-search {
-          position: relative;
-          display: flex;
-          align-items: center;
+        .gal-chip.active {
+          background: var(--fg);
+          color: var(--bg);
+          border-color: var(--fg);
         }
-        .toolbar-search input {
-          padding: 10px 14px 10px 36px;
-          background: rgba(10, 10, 10, 0.04);
-          border: 1px solid rgba(10, 10, 10, 0.08);
+        .gal-filter-close {
+          padding: 12px 28px;
+          background: var(--cyan);
+          border: none;
+          color: var(--bg);
           font-family: var(--font-body);
           font-size: 12px;
-          text-transform: uppercase;
-          letter-spacing: 2px;
-          color: var(--white);
-          outline: none;
-          width: 180px;
-          transition: all 0.25s;
-        }
-        .toolbar-search input::placeholder {
-          color: rgba(10, 10, 10, 0.3);
-        }
-        .toolbar-search input:focus {
-          border-color: var(--cyan);
-          background: rgba(0, 229, 255, 0.04);
-          width: 240px;
-        }
-        .toolbar-search::before {
-          content: '⌕';
-          position: absolute;
-          left: 12px;
-          top: 50%;
-          transform: translateY(-50%);
-          font-size: 14px;
-          color: rgba(10, 10, 10, 0.4);
-          pointer-events: none;
-        }
-
-        .sort-select {
-          padding: 8px 14px;
-          background: transparent;
-          border: 1px solid rgba(10, 10, 10, 0.12);
-          font-family: var(--font-body);
-          font-size: 11px;
+          font-weight: 700;
           letter-spacing: 2px;
           text-transform: uppercase;
-          font-weight: 600;
-          color: rgba(10, 10, 10, 0.55);
           cursor: pointer;
+          transition: all 0.3s;
+          border-radius: 999px;
+        }
+        .gal-filter-close:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 20px rgba(0, 229, 255, 0.3);
         }
 
-        .view-toggle {
-          display: flex;
-          border: 1px solid rgba(10, 10, 10, 0.12);
+        /* ── SCATTERED PHOTOS ── */
+        .gal-scatter-wrap {
+          min-height: 100vh;
+          padding: 80px 0 120px;
+          position: relative;
         }
-        .view-btn {
-          padding: 9px 12px;
-          background: transparent;
-          border: none;
-          font-family: var(--font-body);
-          font-size: 11px;
-          letter-spacing: 1px;
-          text-transform: uppercase;
-          color: rgba(10, 10, 10, 0.45);
-          cursor: pointer;
-          transition: all 0.25s;
-          border-right: 1px solid rgba(10, 10, 10, 0.08);
-        }
-        .view-btn:last-child {
-          border-right: none;
-        }
-        .view-btn:hover {
-          color: var(--white);
-        }
-        .view-btn.active {
-          background: var(--white);
-          color: var(--black);
-        }
-
-        .gallery-wrap {
+        .gal-scatter {
+          position: relative;
           max-width: 1400px;
           margin: 0 auto;
-          padding: 32px 40px 80px;
+          padding: 0 24px;
         }
-
-        .grid {
-          display: grid;
-          gap: 14px;
-        }
-        .grid.dense {
-          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-        }
-        .grid.comfy {
-          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        }
-        .grid.list {
-          grid-template-columns: 1fr;
-          gap: 0;
-        }
-
-        .tile {
+        .gal-photo {
           position: relative;
-          aspect-ratio: 1;
-          overflow: hidden;
-          border: 1px solid rgba(10, 10, 10, 0.06);
+          margin-bottom: 60px;
           cursor: pointer;
-          background: rgba(10, 10, 10, 0.025);
-          transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.3s;
-          padding: 0;
-          text-align: left;
-          font: inherit;
-          color: inherit;
+          will-change: transform;
+          outline: none;
+          transition: filter 0.4s;
         }
-        .tile:hover {
-          transform: translateY(-4px);
-          border-color: rgba(0, 229, 255, 0.4);
+        .gal-photo:hover {
+          filter: brightness(1.08);
         }
-        .tile :global(img) {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
+        .gal-photo:focus-visible {
+          outline: 2px solid var(--cyan);
+          outline-offset: 8px;
+        }
+
+        .gal-photo-frame {
+          position: relative;
+          overflow: hidden;
+          border: 1px solid var(--border);
+          transition: border-color 0.4s;
+        }
+        .gal-photo:hover .gal-photo-frame {
+          border-color: rgba(0, 229, 255, 0.3);
+        }
+        .gal-photo-frame img {
           display: block;
-          transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+          width: 100%;
+          aspect-ratio: 3/4;
+          object-fit: cover;
+          transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
-        .tile:hover :global(img) {
+        .gal-photo:hover .gal-photo-frame img {
           transform: scale(1.04);
         }
-        .tile-fallback {
+        .gal-photo-fallback {
           width: 100%;
-          height: 100%;
+          aspect-ratio: 3/4;
           background: repeating-linear-gradient(
             45deg,
-            rgba(10, 10, 10, 0.04),
-            rgba(10, 10, 10, 0.04) 8px,
-            rgba(10, 10, 10, 0.07) 8px,
-            rgba(10, 10, 10, 0.07) 16px
+            rgba(255, 255, 255, 0.02),
+            rgba(255, 255, 255, 0.02) 8px,
+            rgba(255, 255, 255, 0.05) 8px,
+            rgba(255, 255, 255, 0.05) 16px
           );
         }
-        .tile-corner {
+        .gal-photo-glow {
           position: absolute;
-          top: 10px;
-          left: 10px;
-          font-family: var(--font-body);
-          font-size: 10px;
+          bottom: -40%;
+          left: 10%;
+          right: 10%;
+          height: 60%;
+          background: radial-gradient(
+            ellipse at center,
+            rgba(0, 229, 255, 0.08) 0%,
+            transparent 70%
+          );
+          opacity: 0;
+          transition: opacity 0.5s;
+          pointer-events: none;
+        }
+        .gal-photo:hover .gal-photo-glow {
+          opacity: 1;
+        }
+
+        .gal-photo-caption {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          padding: 12px 4px 0;
+        }
+        .gal-photo-code {
+          font-family: var(--font-display);
           font-weight: 700;
-          letter-spacing: 1.5px;
-          background: rgba(255, 255, 255, 0.92);
-          color: var(--white);
-          padding: 4px 8px;
-          z-index: 2;
+          font-size: 14px;
+          letter-spacing: 1px;
+          color: var(--fg);
           text-transform: uppercase;
         }
-        .tile-index {
+        .gal-photo-loc {
+          font-family: var(--font-body);
+          font-size: 10px;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          color: var(--fg-dim);
+        }
+        .gal-photo-index {
           position: absolute;
-          top: 10px;
-          right: 10px;
+          top: 12px;
+          right: 12px;
           font-family: var(--font-body);
           font-size: 9px;
           font-weight: 600;
           letter-spacing: 1px;
-          color: rgba(10, 10, 10, 0.45);
-          background: rgba(255, 255, 255, 0.7);
-          padding: 3px 6px;
+          color: var(--fg-dim);
+          background: rgba(5, 5, 5, 0.7);
+          backdrop-filter: blur(8px);
+          padding: 4px 8px;
           z-index: 2;
-        }
-        .tile-overlay {
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(180deg, transparent 35%, rgba(255, 255, 255, 0.95));
-          padding: 18px;
-          display: flex;
-          flex-direction: column;
-          justify-content: flex-end;
           opacity: 0;
           transition: opacity 0.3s;
         }
-        .tile:hover .tile-overlay {
+        .gal-photo:hover .gal-photo-index {
           opacity: 1;
         }
-        .tile-code {
-          font-family: var(--font-body);
-          font-weight: 800;
-          font-size: 15px;
-          color: var(--white);
-        }
-        .tile-meta {
-          font-family: var(--font-body);
-          font-size: 10px;
-          letter-spacing: 1.5px;
-          text-transform: uppercase;
-          color: rgba(10, 10, 10, 0.55);
-          margin-top: 4px;
-        }
-        .tile-bar {
-          position: absolute;
-          bottom: 0;
-          left: 0;
-          height: 2px;
-          width: 100%;
-          background: var(--gradient-spectrum);
-          background-size: 200% 100%;
-          animation: spectrumFlow 4s linear infinite;
-          transform: scaleX(0);
-          transform-origin: left;
-          transition: transform 0.4s ease;
-        }
-        .tile:hover .tile-bar {
-          transform: scaleX(1);
-        }
 
-        /* LIST VIEW */
-        .grid.list .tile {
-          aspect-ratio: auto;
-          display: grid;
-          grid-template-columns: 120px 1fr auto;
-          gap: 24px;
-          align-items: center;
-          padding: 0;
-          border: none;
-          border-bottom: 1px solid rgba(10, 10, 10, 0.06);
-          height: auto;
-          background: transparent;
-        }
-        .grid.list .tile:hover {
-          transform: none;
-          background: rgba(10, 10, 10, 0.02);
-        }
-        .grid.list .tile :global(img) {
-          width: 120px;
-          height: 120px;
-        }
-        .list-img-fallback {
-          width: 120px;
-          height: 120px;
-          background: rgba(10, 10, 10, 0.04);
-        }
-        .list-info {
-          padding: 18px 0;
-        }
-        .list-info :global(.lc) {
-          font-family: var(--font-body);
-          font-weight: 800;
-          font-size: 18px;
-          letter-spacing: 1px;
-          color: var(--white);
-        }
-        .list-info :global(.lm) {
-          font-family: var(--font-body);
-          font-size: 11px;
-          letter-spacing: 2px;
-          text-transform: uppercase;
-          color: rgba(10, 10, 10, 0.5);
-          margin-top: 4px;
-        }
-        .list-arrow {
-          padding-right: 18px;
-          font-family: var(--font-body);
-          font-size: 18px;
-          color: rgba(10, 10, 10, 0.3);
-          transition: transform 0.25s, color 0.25s;
-        }
-        .grid.list .tile:hover .list-arrow {
-          color: var(--cyan);
-          transform: translateX(4px);
-        }
-
-        .state {
+        /* ── LOADING / EMPTY ── */
+        .gal-loading {
           text-align: center;
-          padding: 80px 20px;
+          padding: 120px 20px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 16px;
+        }
+        .gal-loading span {
           font-family: var(--font-body);
           font-size: 11px;
           letter-spacing: 3px;
           text-transform: uppercase;
-          color: rgba(10, 10, 10, 0.35);
+          color: var(--fg-dim);
         }
-        .state.error {
+        .gal-loading-bar {
+          width: 120px;
+          height: 2px;
+          background: var(--gradient-spectrum);
+          background-size: 300% 100%;
+          animation: spectrumFlow 2s linear infinite;
+        }
+        .gal-state {
+          text-align: center;
+          padding: 120px 20px;
+          font-family: var(--font-body);
+          font-size: 11px;
+          letter-spacing: 3px;
+          text-transform: uppercase;
+          color: var(--fg-dim);
+        }
+        .gal-state.error {
           color: rgba(255, 45, 123, 0.8);
         }
-        .skeleton {
-          aspect-ratio: 1;
-          background: linear-gradient(
-            90deg,
-            rgba(10, 10, 10, 0.04),
-            rgba(10, 10, 10, 0.08),
-            rgba(10, 10, 10, 0.04)
-          );
-          background-size: 200% 100%;
-          animation: shimmer 1.4s infinite;
-          border: 1px solid rgba(10, 10, 10, 0.05);
-        }
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
 
-        .modal {
+        /* ── MODAL ── */
+        .gal-modal {
           position: fixed;
           inset: 0;
-          background: rgba(255, 255, 255, 0.85);
-          backdrop-filter: blur(24px);
+          background: rgba(5, 5, 5, 0.88);
+          backdrop-filter: blur(30px);
           z-index: 500;
           display: flex;
           align-items: center;
           justify-content: center;
           padding: 40px;
+          animation: modalFadeIn 0.3s ease;
         }
-        .modal-card {
+        @keyframes modalFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .gal-modal-card {
           display: grid;
           grid-template-columns: 1fr 1fr;
           max-width: 1100px;
           width: 100%;
           max-height: 88vh;
-          background: var(--black);
-          border: 1px solid rgba(10, 10, 10, 0.1);
-          box-shadow: 0 30px 80px rgba(10, 10, 10, 0.18);
+          background: var(--bg-elevated);
+          border: 1px solid var(--border-hover);
           overflow: hidden;
           position: relative;
+          animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .modal-card::before {
+        @keyframes modalSlideUp {
+          from { opacity: 0; transform: translateY(40px) scale(0.96); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .gal-modal-card::before {
           content: '';
           position: absolute;
           top: 0;
@@ -739,138 +793,155 @@ export default function GalleryPage() {
           animation: spectrumFlow 4s linear infinite;
           z-index: 3;
         }
-        .modal-img {
+        .gal-modal-img {
           background: #000;
           overflow: hidden;
           display: flex;
           align-items: center;
           justify-content: center;
         }
-        .modal-img :global(img) {
+        .gal-modal-img img {
           width: 100%;
           height: 100%;
           object-fit: cover;
         }
-        .modal-info {
+        .gal-modal-info {
           padding: 48px 40px;
           display: flex;
           flex-direction: column;
           gap: 18px;
           overflow-y: auto;
         }
-        .modal-eyebrow {
+        .gal-modal-badge {
           display: inline-block;
           align-self: flex-start;
-          background: rgba(0, 255, 136, 0.12);
-          color: #00b85f;
-          border: 1px solid rgba(0, 255, 136, 0.35);
+          background: rgba(0, 255, 136, 0.1);
+          color: var(--green);
+          border: 1px solid rgba(0, 255, 136, 0.25);
           font-family: var(--font-body);
           font-size: 10px;
           letter-spacing: 2px;
           text-transform: uppercase;
-          padding: 5px 12px;
+          padding: 5px 14px;
           font-weight: 600;
         }
-        .modal-code {
-          font-family: var(--font-body);
-          font-weight: 800;
+        .gal-modal-code {
+          font-family: var(--font-display);
+          font-weight: 700;
           font-size: 42px;
           letter-spacing: -1px;
-          color: var(--white);
+          color: var(--fg);
           line-height: 1;
         }
-        .modal-meta {
+        .gal-modal-meta {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 18px;
           padding-top: 20px;
-          border-top: 1px solid rgba(10, 10, 10, 0.08);
+          border-top: 1px solid var(--border);
         }
-        .modal-meta-item :global(label) {
+        .gal-modal-meta-item :global(label) {
           font-family: var(--font-body);
           font-size: 9px;
           letter-spacing: 2.5px;
           text-transform: uppercase;
-          color: rgba(10, 10, 10, 0.4);
+          color: var(--fg-dim);
           display: block;
           margin-bottom: 4px;
         }
-        .modal-meta-item :global(span) {
+        .gal-modal-meta-item :global(span) {
           font-size: 14px;
-          color: var(--white);
+          color: var(--fg);
           font-weight: 600;
         }
-        .modal-note {
+        .gal-modal-note {
           font-size: 12px;
           line-height: 1.7;
-          color: rgba(10, 10, 10, 0.5);
+          color: var(--fg-muted);
           padding-top: 20px;
-          border-top: 1px solid rgba(10, 10, 10, 0.08);
+          border-top: 1px solid var(--border);
         }
-        .modal-close {
+        .gal-modal-close {
           position: absolute;
           top: 18px;
           right: 18px;
-          width: 36px;
-          height: 36px;
-          border: 1px solid rgba(10, 10, 10, 0.15);
-          background: rgba(255, 255, 255, 0.85);
-          font-family: var(--font-body);
+          width: 40px;
+          height: 40px;
+          border: 1px solid var(--border-hover);
+          background: rgba(5, 5, 5, 0.7);
+          backdrop-filter: blur(8px);
           font-size: 14px;
           cursor: pointer;
           z-index: 5;
           transition: all 0.25s;
-          color: var(--white);
+          color: var(--fg);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
         }
-        .modal-close:hover {
+        .gal-modal-close:hover {
           border-color: var(--magenta);
           color: var(--magenta);
+          background: rgba(255, 45, 123, 0.1);
         }
 
+        /* ── RESPONSIVE ── */
         @media (max-width: 900px) {
-          .gallery-header {
-            padding: 120px 20px 30px;
-            grid-template-columns: 1fr;
-            gap: 20px;
+          .gal-header {
+            min-height: 55vh;
+            padding: 0 24px 40px;
           }
-          .gallery-meta {
-            text-align: left;
+          .gal-title {
+            font-size: clamp(40px, 13vw, 80px);
+            letter-spacing: -2px;
           }
-          .toolbar {
-            padding: 18px 20px;
-            gap: 14px;
-            top: 56px;
+          .gal-subtitle {
+            font-size: 13px;
           }
-          .toolbar-search input {
-            width: 140px;
+          .gal-filter-toggle {
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            font-size: 11px;
           }
-          .toolbar-search input:focus {
-            width: 160px;
+          .gal-filter-body {
+            padding: 24px 20px 32px;
           }
-          .gallery-wrap {
-            padding: 24px 20px 60px;
+          .gal-scatter {
+            padding: 0 16px;
           }
-          .grid.comfy,
-          .grid.dense {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
+          .gal-photo {
+            margin-bottom: 40px;
+            /* On mobile, override scattered layout for cleaner stacking */
+            margin-left: 0 !important;
+            max-width: 85vw !important;
           }
-          .modal {
+          .gal-photo:nth-child(even) {
+            margin-left: auto !important;
+          }
+          .gal-modal {
             padding: 0;
           }
-          .modal-card {
+          .gal-modal-card {
             grid-template-columns: 1fr;
             max-height: 100vh;
+            border-radius: 0;
           }
-          .modal-img {
+          .gal-modal-img {
             aspect-ratio: 1;
             max-height: 50vh;
           }
-          .modal-info {
+          .gal-modal-info {
             padding: 28px 22px;
           }
-          .modal-code {
+          .gal-modal-code {
             font-size: 32px;
+          }
+        }
+        @media (max-width: 500px) {
+          .gal-photo {
+            max-width: 92vw !important;
           }
         }
       `}</style>

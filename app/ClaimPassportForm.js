@@ -145,8 +145,8 @@ export default function ClaimPassportForm({ onClose }) {
         .claim-modal {
           position: fixed;
           inset: 0;
-          background: rgba(255, 255, 255, 0.85);
-          backdrop-filter: blur(24px);
+          background: rgba(5, 5, 5, 0.88);
+          backdrop-filter: blur(30px);
           z-index: 500;
           display: flex;
           align-items: center;
@@ -158,9 +158,9 @@ export default function ClaimPassportForm({ onClose }) {
           position: relative;
           max-width: 560px;
           width: 100%;
-          background: var(--black);
-          border: 1px solid rgba(10, 10, 10, 0.1);
-          box-shadow: 0 30px 80px rgba(10, 10, 10, 0.18);
+          background: var(--bg-elevated, #0c0c0c);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
           padding: 56px 44px;
           overflow: hidden;
         }
@@ -181,14 +181,19 @@ export default function ClaimPassportForm({ onClose }) {
           right: 18px;
           width: 36px;
           height: 36px;
-          border: 1px solid rgba(10, 10, 10, 0.15);
-          background: rgba(255, 255, 255, 0.85);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          background: rgba(5, 5, 5, 0.7);
+          backdrop-filter: blur(8px);
           font-family: var(--font-body);
           font-size: 14px;
           cursor: pointer;
           z-index: 5;
-          color: var(--white);
+          color: var(--fg, #f0f0f0);
           transition: all 0.25s;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
         .claim-close:hover {
           border-color: var(--magenta);
@@ -231,7 +236,7 @@ export default function ClaimPassportForm({ onClose }) {
           font-family: var(--font-body);
           font-size: 13px;
           line-height: 1.7;
-          color: rgba(10, 10, 10, 0.55);
+          color: var(--fg-muted, rgba(240,240,240,0.5));
           margin-bottom: 32px;
           max-width: 420px;
         }
@@ -262,7 +267,7 @@ export default function ClaimPassportForm({ onClose }) {
           font-size: 10px;
           letter-spacing: 2.5px;
           text-transform: uppercase;
-          color: rgba(10, 10, 10, 0.45);
+          color: var(--fg-dim, rgba(240,240,240,0.25));
           font-weight: 600;
         }
         .field .req {
@@ -270,17 +275,17 @@ export default function ClaimPassportForm({ onClose }) {
         }
         .field input {
           padding: 14px 16px;
-          background: rgba(10, 10, 10, 0.04);
-          border: 1px solid rgba(10, 10, 10, 0.1);
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.1);
           font-family: var(--font-body);
           font-size: 14px;
-          color: var(--white);
+          color: var(--fg, #f0f0f0);
           letter-spacing: 0.5px;
           outline: none;
           transition: all 0.25s;
         }
         .field input::placeholder {
-          color: rgba(10, 10, 10, 0.3);
+          color: var(--fg-dim, rgba(240,240,240,0.25));
         }
         .field input:focus {
           border-color: var(--cyan);
@@ -327,7 +332,7 @@ export default function ClaimPassportForm({ onClose }) {
           font-family: var(--font-body);
           font-size: 11px;
           line-height: 1.6;
-          color: rgba(10, 10, 10, 0.4);
+          color: var(--fg-dim, rgba(240,240,240,0.25));
           text-align: center;
           letter-spacing: 0.3px;
           margin-top: 4px;
