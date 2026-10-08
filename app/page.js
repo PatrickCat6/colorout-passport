@@ -474,6 +474,16 @@ export default function Home() {
     const speeds = [.2,.5,.8,.3,.6,.9,.4,.7,.15,.55,.85,.35,.65,.45,.75,.25,.95,.5];
     const gItems = [];
 
+    // Selected ColorOut works for homepage floating gallery
+    const SUPABASE_IMG = 'https://ypwgutlxjdpszlkwzyyu.supabase.co/storage/v1/object/public/passport-images';
+    const galleryImages = [
+      'CO-2026-0082.JPG','CO-2026-0081.jpg','CO-2026-0080.jpg','CO-2026-0079.jpg',
+      'CO-2026-0078.jpg','CO-2026-0077.jpg','CO-2026-0076.jpg','CO-2026-0075.jpg',
+      'CO-2026-0074.jpg','CO-LEGACY-0070.jpeg','CO-LEGACY-0068.jpg','CO-LEGACY-0065.jpg',
+      'CO-LEGACY-0060.jpg','CO-LEGACY-0055.jpg','CO-LEGACY-0050.jpg','CO-LEGACY-0040.jpg',
+      'CO-LEGACY-0030.jpg','CO-LEGACY-0020.jpg',
+    ];
+
     if (galleryCanvas2) {
       for (let i = 0; i < 18; i++) {
         const p = positions[i];
@@ -481,7 +491,7 @@ export default function Home() {
         el.className = 'gallery-item';
         el.style.cssText = `left:${p.x};top:${p.y};width:${p.w}px;height:${p.h}px;transform:rotate(${rotations[i]}deg)`;
         el.dataset.speed = speeds[i];
-        el.innerHTML = `<div class="gi-inner" style="background:${hues[i%hues.length]}"><span class="gi-idx">${String(i+1).padStart(2,'0')}</span><span class="gi-code">CO-${2020+Math.floor(i/5)}-${String(i+1).padStart(3,'0')}</span></div>`;
+        el.innerHTML = `<div class="gi-inner"><img src="${SUPABASE_IMG}/${galleryImages[i]}" alt="ColorOut ${i+1}" loading="lazy" style="width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .6s" onload="this.style.opacity=1" /><span class="gi-idx">${String(i+1).padStart(2,'0')}</span></div>`;
         galleryCanvas2.appendChild(el);
         gItems.push(el);
       }
