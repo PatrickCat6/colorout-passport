@@ -4,16 +4,14 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import Script from 'next/script';
 import ClaimPassportForm from './ClaimPassportForm';
 
-const SUPABASE_VIDEOS = 'https://ypwgutlxjdpszlkwzyyu.supabase.co/storage/v1/object/public/colorout-videos';
-
 const SCREEN_DATA = [
-  { label: 'NEEoColorphism 7', z: -6,  side: 'left',  color: [0xff2d7b, 0xff6b35], video: `${SUPABASE_VIDEOS}/CO-2026-0082.mov` },
-  { label: 'NEEoColorphism 6', z: -14, side: 'right', color: [0x00e5ff, 0x8b5cf6], video: `${SUPABASE_VIDEOS}/CO-2026-0081.mov` },
-  { label: 'NEEoColorphism 5', z: -22, side: 'left',  color: [0x8b5cf6, 0x34d399], video: `${SUPABASE_VIDEOS}/CO-2026-0080.MOV` },
-  { label: 'NEEoColorphism 4', z: -30, side: 'right', color: [0xfbbf24, 0xff2d7b], video: `${SUPABASE_VIDEOS}/CO-2026-0079.MOV` },
-  { label: 'NEEoColorphism 3', z: -38, side: 'left',  color: [0x34d399, 0x00e5ff], video: `${SUPABASE_VIDEOS}/CO-2026-0078.MOV` },
-  { label: 'NEEoColorphism 2', z: -46, side: 'right', color: [0xff6b35, 0x8b5cf6], video: `${SUPABASE_VIDEOS}/CO-2026-0077.MOV` },
-  { label: 'NEEoColorphism 1', z: -76, side: 'back',  color: [0xe6264d, 0x7c3aed], video: `${SUPABASE_VIDEOS}/CO-2026-0076.mov` },
+  { label: 'NEEoColorphism 7', z: -6,  side: 'left',  color: [0xff2d7b, 0xff6b35], video: '/videos/NEEoColorphism-7.mp4' },
+  { label: 'NEEoColorphism 6', z: -14, side: 'right', color: [0x00e5ff, 0x8b5cf6], video: '/videos/NEEoColorphism-6.mp4' },
+  { label: 'NEEoColorphism 5', z: -22, side: 'left',  color: [0x8b5cf6, 0x34d399], video: '/videos/NEEoColorphism-5.mp4' },
+  { label: 'NEEoColorphism 4', z: -30, side: 'right', color: [0xfbbf24, 0xff2d7b], video: '/videos/NEEoColorphism-4.mp4' },
+  { label: 'NEEoColorphism 3', z: -38, side: 'left',  color: [0x34d399, 0x00e5ff], video: '/videos/NEEoColorphism-3.mp4' },
+  { label: 'NEEoColorphism 2', z: -46, side: 'right', color: [0xff6b35, 0x8b5cf6], video: '/videos/NEEoColorphism-2.mp4' },
+  { label: 'NEEoColorphism 1', z: -76, side: 'back',  color: [0xe6264d, 0x7c3aed], video: '/videos/NEEoColorphism-1.mp4' },
 ];
 
 const ROOM_NAMES = ['Entrance','NEEoColorphism 7','NEEoColorphism 6','NEEoColorphism 5','NEEoColorphism 4','NEEoColorphism 3','NEEoColorphism 2','NEEoColorphism 1'];
