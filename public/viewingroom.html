@@ -1405,17 +1405,20 @@
     roomAudio.volume = 0.75;
     roomAudio.preload = 'auto';
   } catch(e) {}
+  let roomAudioUnlocked = false;
   function unlockRoomAudio() {
-    // Mobile browsers require play() inside a user gesture to unlock audio
-    // We play at volume 0 briefly, then pause immediately — this "unlocks" the audio element
-    // so it can be played later without a user gesture (e.g. on room entry)
-    if (!roomAudio) return;
-    roomAudio.volume = 0;
-    roomAudio.play().then(() => {
-      roomAudio.pause();
-      roomAudio.currentTime = 0;
-      // Don't restore volume here — playRoomAudio will set it when actually playing
-    }).catch(() => {});
+    // On mobile, we need a user gesture to unlock audio playback.
+    // Instead of play-pause (which can leak audible sound), we use
+    // an AudioContext resume to unlock the audio pipeline silently.
+    if (roomAudioUnlocked) return;
+    roomAudioUnlocked = true;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      // Also do a minimal unlock on the audio element itself:
+      // load() triggers resource fetch without playing
+      if (roomAudio) roomAudio.load();
+    } catch(e) {}
   }
   function playRoomAudio() {
     if (roomAudioPlayed || !roomAudio) return;
