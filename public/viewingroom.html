@@ -1407,14 +1407,21 @@
   } catch(e) {}
   function unlockRoomAudio() {
     // Mobile browsers require play() inside a user gesture to unlock audio
+    // We play at volume 0 briefly, then pause immediately — this "unlocks" the audio element
+    // so it can be played later without a user gesture (e.g. on room entry)
     if (!roomAudio) return;
     roomAudio.volume = 0;
-    roomAudio.play().then(() => { roomAudio.pause(); roomAudio.currentTime = 0; roomAudio.volume = 0.75; }).catch(() => { roomAudio.volume = 0.75; });
+    roomAudio.play().then(() => {
+      roomAudio.pause();
+      roomAudio.currentTime = 0;
+      // Don't restore volume here — playRoomAudio will set it when actually playing
+    }).catch(() => {});
   }
   function playRoomAudio() {
     if (roomAudioPlayed || !roomAudio) return;
     roomAudioPlayed = true;
     roomAudio.currentTime = 0;
+    roomAudio.volume = 0.75;
     roomAudio.play().catch(() => {});
   }
 
