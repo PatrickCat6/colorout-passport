@@ -93,6 +93,7 @@
     #touch-controls { display: flex; }
     #hud { display: none; }
     #start-screen .enter { font-size: 14px; }
+    #btn-fpv { display: flex !important; }
   }
   .touch-pad {
     width: 140px; height: 140px; position: relative; pointer-events: auto;
@@ -156,8 +157,10 @@
   <span class="key-hint"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
   <span class="key-hint"><kbd>Space</kbd> jump</span>
   <span class="key-hint"><kbd>1</kbd> wave · <kbd>2</kbd> crouch · <kbd>3</kbd> whir</span>
+  <span class="key-hint"><kbd>V</kbd> first person</span>
   <span class="key-hint">Mouse to look</span>
 </div>
+<button id="btn-fpv" style="position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);right:12px;z-index:25;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.1);border:1.5px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.7);font-size:18px;cursor:pointer;display:none;align-items:center;justify-content:center;">👁</button>
 
 <div id="touch-controls">
   <div class="touch-pad" id="joystick-move">
@@ -937,12 +940,21 @@
   let camYaw = Math.PI;
   let camPitch = 0.25;
   let isPointerLocked = false;
+  let firstPerson = false;
+
+  function toggleFirstPerson() {
+    firstPerson = !firstPerson;
+    character.visible = !firstPerson;
+    const fpvBtn = document.getElementById('btn-fpv');
+    if (fpvBtn) fpvBtn.style.background = firstPerson ? 'rgba(107,63,160,0.35)' : 'rgba(255,255,255,0.1)';
+  }
 
   document.addEventListener('keydown', e => {
     keys[e.code] = true;
     if (e.code === 'Digit1') triggerAction('wave');
     if (e.code === 'Digit2') triggerAction('crouch');
     if (e.code === 'Digit3') triggerAction('mine');
+    if (e.code === 'KeyV') toggleFirstPerson();
   });
   document.addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -956,7 +968,9 @@
     if (!isPointerLocked) return;
     camYaw -= e.movementX * MOUSE_SENS;
     camPitch -= e.movementY * MOUSE_SENS;
-    camPitch = Math.max(-0.6, Math.min(1.0, camPitch));
+    const pitchMin = firstPerson ? -1.2 : -0.6;
+    const pitchMax = firstPerson ? 1.2 : 1.0;
+    camPitch = Math.max(pitchMin, Math.min(pitchMax, camPitch));
   });
 
   // Touch controls
@@ -1038,6 +1052,12 @@
       });
     });
 
+    // First-person toggle button
+    document.getElementById('btn-fpv')?.addEventListener('touchstart', e => {
+      e.preventDefault();
+      toggleFirstPerson();
+    }, { passive: false });
+
     // Touch camera drag — tracks its own touch ID for multi-touch
     let lastTouchX = 0, lastTouchY = 0, cameraTouchId = null;
     renderer.domElement.addEventListener('touchstart', e => {
@@ -1059,7 +1079,9 @@
           const dy = e.touches[i].clientY - lastTouchY;
           camYaw -= dx * 0.005;
           camPitch -= dy * 0.005;
-          camPitch = Math.max(-0.6, Math.min(1.0, camPitch));
+          const pMin = firstPerson ? -1.2 : -0.6;
+          const pMax = firstPerson ? 1.2 : 1.0;
+          camPitch = Math.max(pMin, Math.min(pMax, camPitch));
           lastTouchX = e.touches[i].clientX;
           lastTouchY = e.touches[i].clientY;
           break;
@@ -1364,14 +1386,24 @@
     // ── CAMERA ──
     const charCenter = new THREE.Vector3();
     character.getWorldPosition(charCenter);
-    charCenter.y += 1.0;
 
-    const camX = charCenter.x - Math.sin(camYaw) * CAM_DIST * Math.cos(camPitch);
-    const camY = charCenter.y + CAM_HEIGHT * Math.sin(camPitch);
-    const camZ = charCenter.z - Math.cos(camYaw) * CAM_DIST * Math.cos(camPitch);
-
-    camera.position.set(camX, Math.max(0.3, camY), camZ);
-    camera.lookAt(charCenter);
+    if (firstPerson) {
+      // First-person: camera at eye height, looking forward
+      const eyeH = 1.6;
+      camera.position.set(charCenter.x, charCenter.y + eyeH, charCenter.z);
+      const lookX = charCenter.x + Math.sin(camYaw);
+      const lookY = charCenter.y + eyeH + Math.sin(camPitch) * 2;
+      const lookZ = charCenter.z + Math.cos(camYaw);
+      camera.lookAt(lookX, lookY, lookZ);
+    } else {
+      // Third-person: orbit behind character
+      charCenter.y += 1.0;
+      const camX = charCenter.x - Math.sin(camYaw) * CAM_DIST * Math.cos(camPitch);
+      const camY = charCenter.y + CAM_HEIGHT * Math.sin(camPitch);
+      const camZ = charCenter.z - Math.cos(camYaw) * CAM_DIST * Math.cos(camPitch);
+      camera.position.set(camX, Math.max(0.3, camY), camZ);
+      camera.lookAt(charCenter);
+    }
   }
 
   function animate() {
