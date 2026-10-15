@@ -1418,15 +1418,21 @@
     roomAudio.play().catch(() => {});
   }
 
-  startScreen.addEventListener('click', () => {
+  function enterGallery() {
+    if (started) return;
+    started = true;
     startScreen.style.opacity = '0';
     startScreen.style.transition = 'opacity 0.6s';
-    setTimeout(() => { startScreen.hidden = true; }, 600);
-    started = true;
+    setTimeout(() => { startScreen.style.display = 'none'; }, 600);
     startAllVideos();
     speakWelcome();
     unlockRoomAudio();
     if (!isTouchDevice) renderer.domElement.requestPointerLock?.();
+  }
+  startScreen.addEventListener('click', enterGallery);
+  startScreen.addEventListener('touchend', e => {
+    e.preventDefault();
+    enterGallery();
   });
 })();
 </script>
