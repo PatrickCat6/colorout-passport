@@ -42,13 +42,6 @@
 - Leg flex: -0.25 rad = **-14.3 deg** backward
 - Duration: 0.8s (physical) / 0.4s (Three.js)
 
-### Whir (mine)
-- Torso lean: 0.12 rad = **6.9 deg** forward (ramps in 0.4s)
-- Arm oscillation: sin(t*6) * 0.35 rad = **±20.1 deg** (both arms together)
-- Leg spread: 0.15 rad = **8.6 deg**
-- Wing flutter: sin(t * 0.024) * 0.35 rad = **±20.1 deg** (fast)
-- Duration: 3s
-
 ### Idle
 - All joints near zero with micro-movement
 - Wing flutter: sin(t * 0.006) * 0.1 rad = **±5.7 deg** (slow breathing)
@@ -106,14 +99,14 @@ Obstacle threshold: 15cm
 
 ## OSC Control (from TouchDesigner)
 - Port: 9000 (UDP)
-- `/ee/anim <string>` — idle, walk, wave, crouch, whir, osc
+- `/ee/anim <string>` — idle, walk, wave, crouch, osc
 - `/ee/walk <0|1>` — toggle walking + motors
 - `/ee/servo <ch> <angle>` — direct joint control (degrees)
 - `/ee/motor <left> <right>` — direct motor control (-255 to 255)
 - `/ee/stop` — emergency stop all
 
 ## Serial Commands (USB debug)
-`idle` `walk` `wave` `crouch` `whir` `stop` `center` `scan` `servo <ch> <deg>` `motor <L> <R>`
+`idle` `walk` `wave` `crouch` `stop` `center` `scan` `servo <ch> <deg>` `motor <L> <R>`
 
 ## Assembly Notes
 1. Build spine first (24cm 2020 extrusion vertical)

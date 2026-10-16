@@ -2,7 +2,7 @@
  * EE Animatronic — NEEoColorphism Voxel Character
  * ESP32-S3 + PCA9685 + TB6612FNG + HC-SR04
  *
- * Translates Three.js gallery animations (walk, wave, crouch, whir)
+ * Translates Three.js gallery animations (walk, wave, crouch)
  * into physical servo movements at 1:2 scale (56cm).
  *
  * Patrick Cat / Mixi Art Studio 2026
@@ -169,8 +169,6 @@ UltrasonicSensor sensors[NUM_SENSORS] = {
 //   0.8 rad  = 45.8°   (wave arm raise)
 //   0.18 rad = 10.3°   (crouch torso tilt)
 //   0.25 rad = 14.3°   (crouch leg flex)
-//   0.35 rad = 20.1°   (whir arm swing)
-//   0.12 rad = 6.9°    (whir torso lean)
 //   wing flutter ±0.22 rad = ±12.6° walking, ±0.1 rad = ±5.7° idle
 
 enum AnimState {
@@ -178,7 +176,6 @@ enum AnimState {
   ANIM_WALK,
   ANIM_WAVE,
   ANIM_CROUCH,
-  ANIM_WHIR,      // "mine" in Three.js, renamed to whir
   ANIM_OSC_CONTROL // direct control from TouchDesigner
 };
 
@@ -507,44 +504,11 @@ void animCrouch(float dt) {
   }
 }
 
-void animWhir(float dt) {
-  // "mine" in Three.js — now "whir"
-  // Torso leans, arms swing rhythmically, wings flutter fast
-  actionTimer += dt;
-  float t = actionTimer;
-
-  float mineT = min(t / 0.4f, 1.0f);   // slower ramp for physical
-  float mineLean = mineT * 0.12;        // 6.9° lean
-  float mineSwing = sin(t * 6.0) * 0.35;  // ±20° arm oscillation
-
-  setServoRad(CH_WAIST,      mineLean);
-  setServoRad(CH_HEAD,       mineLean * 0.5);
-  setServoRad(CH_LEFT_ARM,   mineSwing);     // arms swing together
-  setServoRad(CH_RIGHT_ARM,  mineSwing);
-  setServoRad(CH_LEFT_HIP,   mineT * 0.15); // slight leg spread
-  setServoRad(CH_RIGHT_HIP,  mineT * 0.15);
-
-  // Wings flutter fast during whir
-  float wingFlutter = sin(millis() * 0.024) * 0.35;
-  setServoRad(CH_LEFT_WING,   wingFlutter - 0.12);
-  setServoRad(CH_RIGHT_WING, -wingFlutter + 0.12);
-
-  setServoRad(CH_LEFT_ANKLE,  0);
-  setServoRad(CH_RIGHT_ANKLE, 0);
-
-  if (t > 3.0) {  // 3 seconds (longer than Three.js 2s for showmanship)
-    currentAnim = isWalking ? ANIM_WALK : ANIM_IDLE;
-    actionTimer = 0;
-    setServoRad(CH_WAIST, 0);
-    setServoRad(CH_HEAD, 0);
-  }
-}
-
 // ══════════════════════════════════════════════
 // ── OSC PARSER (minimal, no library needed) ──
 // ══════════════════════════════════════════════
 // Handles:
-//   /ee/anim  <string>    — set animation (idle/walk/wave/crouch/whir)
+//   /ee/anim  <string>    — set animation (idle/walk/wave/crouch)
 //   /ee/walk  <int 0|1>   — walk on/off (enables motors)
 //   /ee/servo <int ch> <float angle_deg> — direct servo control
 //   /ee/motor <int left> <int right>     — direct motor control
@@ -577,7 +541,6 @@ void parseOSC(uint8_t* buf, int len) {
       else if (strcmp(animName, "walk") == 0)   { currentAnim = ANIM_WALK; isWalking = true; motorsEnabled = true; }
       else if (strcmp(animName, "wave") == 0)   { currentAnim = ANIM_WAVE; actionTimer = 0; }
       else if (strcmp(animName, "crouch") == 0) { currentAnim = ANIM_CROUCH; actionTimer = 0; }
-      else if (strcmp(animName, "whir") == 0)   { currentAnim = ANIM_WHIR; actionTimer = 0; }
       else if (strcmp(animName, "osc") == 0)    currentAnim = ANIM_OSC_CONTROL;
       Serial.printf("[OSC] anim → %s\n", animName);
     }
@@ -636,7 +599,7 @@ void parseOSC(uint8_t* buf, int len) {
 // ── SERIAL COMMAND PARSER ──
 // ══════════════════════════════════════════════
 // Simple text commands for testing without WiFi:
-//   idle / walk / wave / crouch / whir / stop
+//   idle / walk / wave / crouch / stop
 //   servo <ch> <angle_deg>
 //   motor <left> <right>
 //   center  — all servos to center
@@ -649,7 +612,6 @@ void parseSerial(String cmd) {
   else if (cmd == "walk")    { currentAnim = ANIM_WALK; isWalking = true; motorsEnabled = true; }
   else if (cmd == "wave")    { currentAnim = ANIM_WAVE; actionTimer = 0; }
   else if (cmd == "crouch")  { currentAnim = ANIM_CROUCH; actionTimer = 0; }
-  else if (cmd == "whir")    { currentAnim = ANIM_WHIR; actionTimer = 0; }
   else if (cmd == "stop")    { currentAnim = ANIM_IDLE; isWalking = false; motorsEnabled = false; motorsStop(); }
   else if (cmd == "center")  {
     for (int i = 0; i < NUM_SERVOS; i++) setServoAngle(i, 0);
@@ -677,7 +639,7 @@ void parseSerial(String cmd) {
     }
   }
   else {
-    Serial.println("Commands: idle walk wave crouch whir stop center scan servo<ch><deg> motor<L><R>");
+    Serial.println("Commands: idle walk wave crouch stop center scan servo<ch><deg> motor<L><R>");
   }
 }
 
@@ -731,7 +693,7 @@ void setup() {
     Serial.println("\n[WIFI] Not connected — running in serial-only mode");
   }
 
-  Serial.println("\n[READY] Type 'walk', 'wave', 'crouch', 'whir', 'stop'");
+  Serial.println("\n[READY] Type 'walk', 'wave', 'crouch', 'stop'");
   Serial.println("        Or send OSC to /ee/anim, /ee/servo, /ee/motor\n");
 
   lastUpdateUs = micros();
@@ -781,7 +743,6 @@ void loop() {
     case ANIM_WALK:    animWalk(dt);    break;
     case ANIM_WAVE:    animWave(dt);    break;
     case ANIM_CROUCH:  animCrouch(dt);  break;
-    case ANIM_WHIR:    animWhir(dt);    break;
     case ANIM_OSC_CONTROL: break;  // servos set directly via OSC
   }
 
