@@ -2,7 +2,7 @@
  * EE Animatronic — NEEoColorphism Voxel Character
  * ESP32-S3 + PCA9685 + TB6612FNG + HC-SR04
  *
- * Translates Three.js gallery animations (walk, wave, crouch)
+ * Translates Three.js gallery animations (walk, wave)
  * into physical servo movements at 1:2 scale (56cm).
  *
  * Patrick Cat / Mixi Art Studio 2026
@@ -10,8 +10,8 @@
  * Hardware:
  *   - ESP32-S3 DevKitC
  *   - PCA9685 16-ch PWM driver (I2C addr 0x40)
- *   - 6× MG996R servos (head, 2× shoulder, waist, 2× hip)
- *   - 5× SG90 micro servos (ankles + spare)
+ *   - 5× MG996R servos (head, 2× shoulder, 2× hip)
+ *   - 4× SG90 micro servos (2× wing, 2× ankle)
  *   - 2× TB6612FNG motor drivers (3× N20 30RPM motors)
  *   - 5× HC-SR04 ultrasonic sensors
  *   - 1000µF capacitor on servo power rail
@@ -52,7 +52,6 @@ WiFiUDP udp;
 // Maps physical joints to PCA9685 channels.
 // Three.js character has these animated axes:
 //   head:      rotation.x (nod)
-//   torso:     rotation.x (lean forward/back)
 //   leftArm:   rotation.x (swing forward/back)
 //   rightArm:  rotation.x (swing forward/back)
 //   leftLeg:   rotation.x (swing forward/back)
@@ -64,14 +63,13 @@ enum ServoChannel {
   CH_HEAD        = 0,   // MG996R — nod up/down
   CH_LEFT_ARM    = 1,   // MG996R — shoulder swing
   CH_RIGHT_ARM   = 2,   // MG996R — shoulder swing
-  CH_WAIST       = 3,   // MG996R — torso lean
-  CH_LEFT_HIP    = 4,   // MG996R — hip swing
-  CH_RIGHT_HIP   = 5,   // MG996R — hip swing
-  CH_LEFT_WING   = 6,   // SG90  — wing flutter
-  CH_RIGHT_WING  = 7,   // SG90  — wing flutter
-  CH_LEFT_ANKLE  = 8,   // SG90  — foot compensation
-  CH_RIGHT_ANKLE = 9,   // SG90  — foot compensation
-  NUM_SERVOS     = 10
+  CH_LEFT_HIP    = 3,   // MG996R — hip swing
+  CH_RIGHT_HIP   = 4,   // MG996R — hip swing
+  CH_LEFT_WING   = 5,   // SG90  — wing flutter
+  CH_RIGHT_WING  = 6,   // SG90  — wing flutter
+  CH_LEFT_ANKLE  = 7,   // SG90  — foot compensation
+  CH_RIGHT_ANKLE = 8,   // SG90  — foot compensation
+  NUM_SERVOS     = 9
 };
 
 // Servo calibration: [center_us, min_us, max_us, max_angle_deg]
@@ -91,13 +89,12 @@ ServoConfig servoConfigs[NUM_SERVOS] = {
   { 1500,  600, 2400,  60, false },  // 0: head nod
   { 1500,  600, 2400,  90, false },  // 1: left arm
   { 1500,  600, 2400,  90, true  },  // 2: right arm (mirrored)
-  { 1500,  800, 2200,  45, false },  // 3: waist lean
-  { 1500,  600, 2400,  60, false },  // 4: left hip
-  { 1500,  600, 2400,  60, true  },  // 5: right hip (mirrored)
-  { 1500,  800, 2200,  45, false },  // 6: left wing
-  { 1500,  800, 2200,  45, true  },  // 7: right wing (mirrored)
-  { 1500, 1000, 2000,  30, false },  // 8: left ankle
-  { 1500, 1000, 2000,  30, true  },  // 9: right ankle
+  { 1500,  600, 2400,  60, false },  // 3: left hip
+  { 1500,  600, 2400,  60, true  },  // 4: right hip (mirrored)
+  { 1500,  800, 2200,  45, false },  // 5: left wing
+  { 1500,  800, 2200,  45, true  },  // 6: right wing (mirrored)
+  { 1500, 1000, 2000,  30, false },  // 7: left ankle
+  { 1500, 1000, 2000,  30, true  },  // 8: right ankle
 };
 
 // Current servo positions (microseconds)
@@ -167,15 +164,12 @@ UltrasonicSensor sensors[NUM_SENSORS] = {
 //   0.5 rad  = 28.6°   (leg swing amplitude)
 //   0.35 rad = 20.1°   (arm swing amplitude)
 //   0.8 rad  = 45.8°   (wave arm raise)
-//   0.18 rad = 10.3°   (crouch torso tilt)
-//   0.25 rad = 14.3°   (crouch leg flex)
 //   wing flutter ±0.22 rad = ±12.6° walking, ±0.1 rad = ±5.7° idle
 
 enum AnimState {
   ANIM_IDLE,
   ANIM_WALK,
   ANIM_WAVE,
-  ANIM_CROUCH,
   ANIM_OSC_CONTROL // direct control from TouchDesigner
 };
 
@@ -303,11 +297,11 @@ void setMotor(uint8_t in1, uint8_t in2, uint8_t pwmPin, int16_t speed) {
   if (speed > 0) {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    ledcWrite(pwmPin, min(speed, 255));
+    ledcWrite(pwmPin, min((int)speed, 255));
   } else if (speed < 0) {
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
-    ledcWrite(pwmPin, min(-speed, 255));
+    ledcWrite(pwmPin, min((int)-speed, 255));
   } else {
     digitalWrite(in1, LOW);
     digitalWrite(in2, LOW);
@@ -387,7 +381,6 @@ void animIdle(float dt) {
   float headBob  = sin(walkPhase * 2) * 0.02 * 0.15;
 
   setServoRad(CH_HEAD,      headBob);
-  setServoRad(CH_WAIST,     0);
   setServoRad(CH_LEFT_ARM,  -armSwing);   // opposite to legs
   setServoRad(CH_RIGHT_ARM,  armSwing);
   setServoRad(CH_LEFT_HIP,   legSwing);
@@ -412,7 +405,6 @@ void animWalk(float dt) {
   float headBob  = sin(walkPhase * 2) * 0.02; // ±1.15°
 
   setServoRad(CH_HEAD,      headBob);
-  setServoRad(CH_WAIST,     0);
   setServoRad(CH_LEFT_ARM,  -armSwing);   // arms opposite to legs
   setServoRad(CH_RIGHT_ARM,  armSwing);
   setServoRad(CH_LEFT_HIP,   legSwing);
@@ -449,7 +441,6 @@ void animWave(float dt) {
   setServoRad(CH_LEFT_ARM,   0);
   setServoRad(CH_LEFT_HIP,   0);
   setServoRad(CH_RIGHT_HIP,  0);
-  setServoRad(CH_WAIST,      0);
   setServoRad(CH_HEAD,        0);
 
   // Wings neutral during wave
@@ -465,50 +456,11 @@ void animWave(float dt) {
   }
 }
 
-void animCrouch(float dt) {
-  actionTimer += dt;
-  float t = actionTimer;
-  float crouchDur = 0.8;  // slower for physical movement
-  float crouchT = min(t / crouchDur, 1.0f);
-  float crouchAmt = sin(crouchT * PI);
-
-  // Torso leans forward
-  float tiltX = crouchAmt * 0.18;    // 10.3°
-  float legFlex = crouchAmt * 0.25;  // 14.3°
-
-  setServoRad(CH_WAIST,      tiltX);
-  setServoRad(CH_HEAD,       tiltX * 0.5);
-  setServoRad(CH_LEFT_ARM,   0);
-  setServoRad(CH_RIGHT_ARM,  0);
-  setServoRad(CH_LEFT_HIP,  -legFlex);   // legs flex backward
-  setServoRad(CH_RIGHT_HIP, -legFlex);
-
-  // Wings follow torso (flutter paused)
-  setServoRad(CH_LEFT_WING,  -0.12);
-  setServoRad(CH_RIGHT_WING,  0.12);
-
-  // Ankles compensate for the crouch
-  setServoRad(CH_LEFT_ANKLE,   legFlex * 0.5);
-  setServoRad(CH_RIGHT_ANKLE,  legFlex * 0.5);
-
-  if (t > crouchDur) {
-    currentAnim = isWalking ? ANIM_WALK : ANIM_IDLE;
-    actionTimer = 0;
-    // Reset
-    setServoRad(CH_WAIST, 0);
-    setServoRad(CH_HEAD, 0);
-    setServoRad(CH_LEFT_HIP, 0);
-    setServoRad(CH_RIGHT_HIP, 0);
-    setServoRad(CH_LEFT_ANKLE, 0);
-    setServoRad(CH_RIGHT_ANKLE, 0);
-  }
-}
-
 // ══════════════════════════════════════════════
 // ── OSC PARSER (minimal, no library needed) ──
 // ══════════════════════════════════════════════
 // Handles:
-//   /ee/anim  <string>    — set animation (idle/walk/wave/crouch)
+//   /ee/anim  <string>    — set animation (idle/walk/wave)
 //   /ee/walk  <int 0|1>   — walk on/off (enables motors)
 //   /ee/servo <int ch> <float angle_deg> — direct servo control
 //   /ee/motor <int left> <int right>     — direct motor control
@@ -540,7 +492,6 @@ void parseOSC(uint8_t* buf, int len) {
       if (strcmp(animName, "idle") == 0)        currentAnim = ANIM_IDLE;
       else if (strcmp(animName, "walk") == 0)   { currentAnim = ANIM_WALK; isWalking = true; motorsEnabled = true; }
       else if (strcmp(animName, "wave") == 0)   { currentAnim = ANIM_WAVE; actionTimer = 0; }
-      else if (strcmp(animName, "crouch") == 0) { currentAnim = ANIM_CROUCH; actionTimer = 0; }
       else if (strcmp(animName, "osc") == 0)    currentAnim = ANIM_OSC_CONTROL;
       Serial.printf("[OSC] anim → %s\n", animName);
     }
@@ -599,7 +550,7 @@ void parseOSC(uint8_t* buf, int len) {
 // ── SERIAL COMMAND PARSER ──
 // ══════════════════════════════════════════════
 // Simple text commands for testing without WiFi:
-//   idle / walk / wave / crouch / stop
+//   idle / walk / wave / stop
 //   servo <ch> <angle_deg>
 //   motor <left> <right>
 //   center  — all servos to center
@@ -611,7 +562,6 @@ void parseSerial(String cmd) {
   if (cmd == "idle")         { currentAnim = ANIM_IDLE; isWalking = false; motorsEnabled = false; motorsStop(); }
   else if (cmd == "walk")    { currentAnim = ANIM_WALK; isWalking = true; motorsEnabled = true; }
   else if (cmd == "wave")    { currentAnim = ANIM_WAVE; actionTimer = 0; }
-  else if (cmd == "crouch")  { currentAnim = ANIM_CROUCH; actionTimer = 0; }
   else if (cmd == "stop")    { currentAnim = ANIM_IDLE; isWalking = false; motorsEnabled = false; motorsStop(); }
   else if (cmd == "center")  {
     for (int i = 0; i < NUM_SERVOS; i++) setServoAngle(i, 0);
@@ -639,7 +589,7 @@ void parseSerial(String cmd) {
     }
   }
   else {
-    Serial.println("Commands: idle walk wave crouch stop center scan servo<ch><deg> motor<L><R>");
+    Serial.println("Commands: idle walk wave stop center scan servo<ch><deg> motor<L><R>");
   }
 }
 
@@ -693,8 +643,8 @@ void setup() {
     Serial.println("\n[WIFI] Not connected — running in serial-only mode");
   }
 
-  Serial.println("\n[READY] Type 'walk', 'wave', 'crouch', 'stop'");
-  Serial.println("        Or send OSC to /ee/anim, /ee/servo, /ee/motor\n");
+  Serial.println("\n[READY] Type 'walk', 'wave', 'stop'");
+  Serial.println("        Or send OSC to /ee/anim, /ee/servo, /ee/motor");
 
   lastUpdateUs = micros();
 }
@@ -742,7 +692,6 @@ void loop() {
     case ANIM_IDLE:    animIdle(dt);    break;
     case ANIM_WALK:    animWalk(dt);    break;
     case ANIM_WAVE:    animWave(dt);    break;
-    case ANIM_CROUCH:  animCrouch(dt);  break;
     case ANIM_OSC_CONTROL: break;  // servos set directly via OSC
   }
 

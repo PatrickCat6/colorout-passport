@@ -14,13 +14,12 @@
 | 0  | Head        | MG996R | nod (pitch)   | head.rotation.x          | ±60        |
 | 1  | Left Arm    | MG996R | swing (pitch) | leftArm.rotation.x       | ±90        |
 | 2  | Right Arm   | MG996R | swing (pitch) | rightArm.rotation.x      | ±90 (inv)  |
-| 3  | Waist       | MG996R | lean (pitch)  | torso.rotation.x         | ±45        |
-| 4  | Left Hip    | MG996R | swing (pitch) | leftLeg.rotation.x       | ±60        |
-| 5  | Right Hip   | MG996R | swing (pitch) | rightLeg.rotation.x      | ±60 (inv)  |
-| 6  | Left Wing   | SG90   | flutter (yaw) | leftWing.rotation.y      | ±45        |
-| 7  | Right Wing  | SG90   | flutter (yaw) | rightWing.rotation.y     | ±45 (inv)  |
-| 8  | Left Ankle  | SG90   | comp (pitch)  | (derived from leg swing) | ±30        |
-| 9  | Right Ankle | SG90   | comp (pitch)  | (derived from leg swing) | ±30 (inv)  |
+| 3  | Left Hip    | MG996R | swing (pitch) | leftLeg.rotation.x       | ±60        |
+| 4  | Right Hip   | MG996R | swing (pitch) | rightLeg.rotation.x      | ±60 (inv)  |
+| 5  | Left Wing   | SG90   | flutter (yaw) | leftWing.rotation.y      | ±45        |
+| 6  | Right Wing  | SG90   | flutter (yaw) | rightWing.rotation.y     | ±45 (inv)  |
+| 7  | Left Ankle  | SG90   | comp (pitch)  | (derived from leg swing) | ±30        |
+| 8  | Right Ankle | SG90   | comp (pitch)  | (derived from leg swing) | ±30 (inv)  |
 
 ## Animation Angles (from Three.js radians → degrees)
 
@@ -35,12 +34,6 @@
 - Right arm raise: -0.8 rad = **-45.8 deg** (peak, sin envelope 0→1→0)
 - Duration: 0.8s (physical) / 0.4s (Three.js)
 - All other joints neutral
-
-### Crouch
-- Torso tilt: 0.18 rad = **10.3 deg** forward
-- Head tilt: 0.09 rad = **5.2 deg** forward (half of torso)
-- Leg flex: -0.25 rad = **-14.3 deg** backward
-- Duration: 0.8s (physical) / 0.4s (Three.js)
 
 ### Idle
 - All joints near zero with micro-movement
@@ -99,14 +92,14 @@ Obstacle threshold: 15cm
 
 ## OSC Control (from TouchDesigner)
 - Port: 9000 (UDP)
-- `/ee/anim <string>` — idle, walk, wave, crouch, osc
+- `/ee/anim <string>` — idle, walk, wave, osc
 - `/ee/walk <0|1>` — toggle walking + motors
 - `/ee/servo <ch> <angle>` — direct joint control (degrees)
 - `/ee/motor <left> <right>` — direct motor control (-255 to 255)
 - `/ee/stop` — emergency stop all
 
 ## Serial Commands (USB debug)
-`idle` `walk` `wave` `crouch` `stop` `center` `scan` `servo <ch> <deg>` `motor <L> <R>`
+`idle` `walk` `wave` `stop` `center` `scan` `servo <ch> <deg>` `motor <L> <R>`
 
 ## Assembly Notes
 1. Build spine first (24cm 2020 extrusion vertical)
