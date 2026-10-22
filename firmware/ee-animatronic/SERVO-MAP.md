@@ -1,18 +1,22 @@
 # EE Animatronic — Servo Map
 
 Sides are always **EE's own**: "left" = EE's left arm, as if you were EE.
-Degrees are servo degrees: 0° = servo centre (1500 µs), 10 µs per degree.
+Calibration is stored as the pulse each servo receives (µs, 1500 = centre).
+The `servo <ch> <deg>` command uses one scale for every channel: 0° = 1500 µs, 10 µs per degree.
 
 ## PCA9685 #1 (I2C 0x40)
 
+Head and arms measured by hand on 2026-10-21 with the previous firmware, converted to the pulse each servo actually got
+(that firmware scaled and inverted each channel differently, and clamped ch4 to ±60).
+
 | Ch | Joint | Servo | Rest | End | Limits | Status |
 |----|-------|-------|------|-----|--------|--------|
-| 0 | Head pan | MG996R | 0° | +45° (looks to one side; −45° the other) | −45 … +45 | calibrated |
-| 1 | Head tilt | MG996R | 0° | −45° (looks down) | −45 … 0 | calibrated |
-| 2 | Left shoulder (raises arm sideways) | MG996R | +20° | −90° (arm out to the side) | −90 … +20 | calibrated |
-| 3 | Left arm (bends forward) | MG996R | +30° (straight) | −20° (slightly bent) | −20 … +30 | calibrated |
-| 4 | Right shoulder (raises arm sideways) | MG996R | 0° | +90° (arm out to the side) | 0 … +90 | calibrated |
-| 5 | Right arm (bends forward) | MG996R | −30° (straight) | +20° (slightly bent) | −30 … +20 | calibrated |
+| 0 | Head pan | MG996R | 1500 µs | 2175 µs (looks to one side; 825 µs the other) | 825 … 2175 | calibrated |
+| 1 | Head tilt | MG996R | 1500 µs | 1050 µs (looks down) | 1050 … 1500 | calibrated |
+| 2 | Left shoulder (raises arm sideways) | MG996R | 1300 µs | 2400 µs (arm out to the side) | 1300 … 2400 | calibrated |
+| 3 | Left arm (bends forward) | MG996R | 1950 µs (straight) | 1200 µs (slightly bent) | 1200 … 1950 | calibrated |
+| 4 | Right shoulder (raises arm sideways) | MG996R | 1500 µs | 600 µs (arm out to the side) | 600 … 1500 | calibrated |
+| 5 | Right arm (bends forward) | MG996R | 1033 µs (straight) | 1811 µs (slightly bent) | 1033 … 1811 | calibrated |
 | 6 | Left hip roll | DS3218 | — | — | — | to calibrate |
 | 7 | Right hip roll | DS3218 | — | — | — | to calibrate |
 | 8 | Left hip pitch | DS3218 | — | — | — | to calibrate |
@@ -37,10 +41,10 @@ so no animation can push a joint past what was tested by hand.
 To calibrate a new joint (legs, wings):
 
 1. Set its `enabled` to `true` in the `joints[]` table with wide-open limits only while testing.
-2. Over serial, send `servo <ch> <deg>` and find rest and end positions.
-3. Write rest, end, min and max into `joints[]`, then upload again.
+2. Over serial, send `servo <ch> <deg>` (or `us <ch> <µs>`) and find rest and end positions.
+3. Convert to µs (µs = 1500 + 10 × deg), write rest, end, min and max into `joints[]`, then upload again.
 
-Note: the shoulders are calibrated right at the servo's ±90° travel. If one buzzes or
+Note: both shoulders end right at 600 / 2400 µs, the end of the servo's travel. If one buzzes or
 gets warm at the end position, move its horn 2 teeth (≈29°) away from that end and
 recalibrate it.
 
@@ -48,7 +52,8 @@ recalibrate it.
 
 `idle` `wave` `walk` `stop` `rest` `cal` `scan`
 `joint <name> <amount>` — e.g. `joint r_shoulder 0.5`
-`servo <ch> <deg>` — raw degrees, clamped to that joint's limits
+`servo <ch> <deg>` — raw degrees on the common scale, clamped to that joint's limits
+`us <ch> <µs>` — raw pulse, clamped
 
 ## OSC (UDP 9000, TouchDesigner)
 

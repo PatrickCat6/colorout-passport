@@ -17,10 +17,12 @@
  *   - 1000µF capacitor on each PCA9685 V+ rail
  *
  * Calibration:
- *   Every joint has a REST and an END position in servo degrees (0 = servo centre,
- *   1500 µs). Animations ask for an "amount": 0 = rest, 1 = end, in between = blend.
- *   Each joint is also clamped to [minDeg, maxDeg] so no animation can push it
- *   past what was tested by hand. Leg and wing joints stay disabled (no pulse at all)
+ *   Every joint has a REST and an END position stored as the pulse the servo gets
+ *   (microseconds, 1500 = servo centre). Animations ask for an "amount":
+ *   0 = rest, 1 = end, in between = blend. Each joint is also clamped to
+ *   [minUs, maxUs] so no animation can push it past what was tested by hand.
+ *   The `servo <ch> <deg>` command uses one scale for every channel:
+ *   0° = 1500 µs, 10 µs per degree (so 90° = 2400 µs, -90° = 600 µs). Leg and wing joints stay disabled (no pulse at all)
  *   until they are calibrated and set to enabled = true.
  *
  * Comms:
@@ -49,13 +51,12 @@ bool wifiOk = false;
 #define PCA2_ADDR 0x41
 #define PCA_FREQ  50
 
-// Servo degrees → pulse. 0° = 1500 µs, 10 µs per degree (±90° = 600–2400 µs).
-// Same mapping the calibration numbers were measured with.
+// `servo <ch> <deg>` scale, the same for every channel: 0° = 1500 µs, 10 µs per degree.
 #define CENTER_US   1500.0f
 #define US_PER_DEG  10.0f
 
-// Max speed while moving to a target (deg/s). Protects gears and the power rail.
-#define MAX_SPEED_DEG_S 240.0f
+// Max speed while moving to a target (µs per second; 2400 µs/s ≈ 240°/s).
+#define MAX_SPEED_US_S 2400.0f
 
 // ══════════════════════════════════════════════
 // ── JOINTS + CALIBRATION ──
@@ -65,13 +66,13 @@ struct Joint {
   const char* name;
   uint8_t pca;       // 0 = PCA #1 (0x40), 1 = PCA #2 (0x41)
   uint8_t ch;        // channel on that PCA
-  float   restDeg;   // amount 0
-  float   endDeg;    // amount 1
-  float   minDeg;    // hard limits (servo degrees)
-  float   maxDeg;
+  float   restUs;    // pulse at amount 0
+  float   endUs;     // pulse at amount 1
+  float   minUs;     // hard limits (pulse, µs)
+  float   maxUs;
   bool    enabled;   // false = never driven
-  float   currentDeg;
-  float   targetDeg;
+  float   currentUs;
+  float   targetUs;
   bool    started;   // first pulse sent
 };
 
@@ -84,25 +85,27 @@ enum JointId {
   NUM_JOINTS
 };
 
+// Head and arms: measured by hand on 2026-10-21 (converted from the old firmware's
+// per-channel scales to the pulse each servo actually received).
 Joint joints[NUM_JOINTS] = {
-  //  name          pca ch  rest   end    min    max   enabled
-  { "head_pan",      0,  0,   0,    45,   -45,    45,  true  },  // end = mira a un lado, -1 = al otro
-  { "head_tilt",     0,  1,   0,   -45,   -45,     0,  true  },  // end = mira abajo
-  { "l_shoulder",    0,  2,  20,   -90,   -90,    20,  true  },  // end = brazo de lado
-  { "l_arm",         0,  3,  30,   -20,   -20,    30,  true  },  // end = doblado
-  { "r_shoulder",    0,  4,   0,    90,     0,    90,  true  },  // end = brazo de lado
-  { "r_arm",         0,  5, -30,    20,   -30,    20,  true  },  // end = doblado
+  //  name          pca ch  rest    end    min    max   enabled
+  { "head_pan",      0,  0, 1500,  2175,   825,  2175,  true  },  // end = mira a un lado, amount -1 = al otro
+  { "head_tilt",     0,  1, 1500,  1050,  1050,  1500,  true  },  // end = mira abajo
+  { "l_shoulder",    0,  2, 1300,  2400,  1300,  2400,  true  },  // end = brazo de lado
+  { "l_arm",         0,  3, 1950,  1200,  1200,  1950,  true  },  // rest = recto, end = doblado
+  { "r_shoulder",    0,  4, 1500,   600,   600,  1500,  true  },  // end = brazo de lado
+  { "r_arm",         0,  5, 1033,  1811,  1033,  1811,  true  },  // rest = recto, end = doblado
   // Legs and wings: placeholders until calibrated by hand (same method as above)
-  { "l_hip_roll",    0,  6,   0,     0,     0,     0,  false },
-  { "r_hip_roll",    0,  7,   0,     0,     0,     0,  false },
-  { "l_hip_pitch",   0,  8,   0,     0,     0,     0,  false },
-  { "r_hip_pitch",   0,  9,   0,     0,     0,     0,  false },
-  { "l_knee",        0, 10,   0,     0,     0,     0,  false },
-  { "r_knee",        0, 11,   0,     0,     0,     0,  false },
-  { "l_ankle",       0, 12,   0,     0,     0,     0,  false },
-  { "r_ankle",       0, 13,   0,     0,     0,     0,  false },
-  { "l_wing",        0, 14,   0,     0,     0,     0,  false },
-  { "r_wing",        0, 15,   0,     0,     0,     0,  false },
+  { "l_hip_roll",    0,  6, 1500,  1500,  1500,  1500,  false },
+  { "r_hip_roll",    0,  7, 1500,  1500,  1500,  1500,  false },
+  { "l_hip_pitch",   0,  8, 1500,  1500,  1500,  1500,  false },
+  { "r_hip_pitch",   0,  9, 1500,  1500,  1500,  1500,  false },
+  { "l_knee",        0, 10, 1500,  1500,  1500,  1500,  false },
+  { "r_knee",        0, 11, 1500,  1500,  1500,  1500,  false },
+  { "l_ankle",       0, 12, 1500,  1500,  1500,  1500,  false },
+  { "r_ankle",       0, 13, 1500,  1500,  1500,  1500,  false },
+  { "l_wing",        0, 14, 1500,  1500,  1500,  1500,  false },
+  { "r_wing",        0, 15, 1500,  1500,  1500,  1500,  false },
 };
 
 // ══════════════════════════════════════════════
@@ -165,35 +168,38 @@ void pcaSetUs(uint8_t idx, uint8_t ch, float us) {
 
 float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-// Raw servo degrees (still clamped to the joint's tested limits)
-void setJointDeg(uint8_t j, float deg) {
+// Raw pulse (still clamped to the joint's tested limits)
+void setJointUs(uint8_t j, float us) {
   if (j >= NUM_JOINTS || !joints[j].enabled) return;
-  joints[j].targetDeg = clampf(deg, joints[j].minDeg, joints[j].maxDeg);
+  joints[j].targetUs = clampf(us, joints[j].minUs, joints[j].maxUs);
 }
+
+// Raw degrees on the common scale (0° = 1500 µs, 10 µs/°)
+void setJointDeg(uint8_t j, float deg) { setJointUs(j, CENTER_US + deg * US_PER_DEG); }
 
 // Amount: 0 = rest, 1 = end. Negative values only matter for two-sided joints (head pan).
 void setJoint(uint8_t j, float amount) {
   if (j >= NUM_JOINTS) return;
   Joint& J = joints[j];
-  setJointDeg(j, J.restDeg + amount * (J.endDeg - J.restDeg));
+  setJointUs(j, J.restUs + amount * (J.endUs - J.restUs));
 }
 
 void allToRest() { for (uint8_t j = 0; j < NUM_JOINTS; j++) setJoint(j, 0); }
 
-// Called every loop: moves each joint toward its target at MAX_SPEED_DEG_S
+// Called every loop: moves each joint toward its target at MAX_SPEED_US_S
 void updateJoints(float dt) {
-  float step = MAX_SPEED_DEG_S * dt;
+  float step = MAX_SPEED_US_S * dt;
   for (uint8_t j = 0; j < NUM_JOINTS; j++) {
     Joint& J = joints[j];
     if (!J.enabled) continue;
     if (!J.started) {                 // first pulse: go straight to target (position unknown)
-      J.currentDeg = J.targetDeg;
+      J.currentUs = J.targetUs;
       J.started = true;
     } else {
-      float d = J.targetDeg - J.currentDeg;
-      J.currentDeg += clampf(d, -step, step);
+      float d = J.targetUs - J.currentUs;
+      J.currentUs += clampf(d, -step, step);
     }
-    pcaSetUs(J.pca, J.ch, CENTER_US + J.currentDeg * US_PER_DEG);
+    pcaSetUs(J.pca, J.ch, J.currentUs);
   }
 }
 
@@ -285,16 +291,17 @@ void animWalk(float t) {
 //   idle | wave | walk | stop       animations (stop = everything to rest)
 //   rest                            all joints to rest, manual mode
 //   joint <name> <amount>           e.g. joint r_shoulder 0.5   (0 = rest, 1 = end)
-//   servo <ch> <deg>                raw degrees on PCA #1, clamped to that joint's limits
+//   servo <ch> <deg>                raw degrees on PCA #1 (0° = 1500 µs, 10 µs/°), clamped
+//   us <ch> <microseconds>          raw pulse on PCA #1, clamped
 //   cal                             print the calibration table
 //   scan                            read the ultrasonic sensors
 
 void printCal() {
-  Serial.println("joint         pca ch   rest    end    min    max  on   now");
+  Serial.println("joint         pca ch  rest   end   min   max  on    now   (µs; deg = (us-1500)/10)");
   for (uint8_t j = 0; j < NUM_JOINTS; j++) {
     Joint& J = joints[j];
-    Serial.printf("%-13s %3d %2d %6.1f %6.1f %6.1f %6.1f  %s %6.1f\n", J.name, J.pca + 1, J.ch,
-                  J.restDeg, J.endDeg, J.minDeg, J.maxDeg, J.enabled ? "y" : "-", J.currentDeg);
+    Serial.printf("%-13s %3d %2d %5.0f %5.0f %5.0f %5.0f  %s %6.0f\n", J.name, J.pca + 1, J.ch,
+                  J.restUs, J.endUs, J.minUs, J.maxUs, J.enabled ? "y" : "-", J.currentUs);
   }
 }
 
@@ -317,16 +324,23 @@ void parseSerial(String cmd) {
     if (j < 0) { Serial.println("unknown joint (type 'cal' for names)"); return; }
     currentAnim = ANIM_MANUAL;
     setJoint(j, a);
-    Serial.printf("%s → amount %.2f (%.1f°)\n", name, a, joints[j].targetDeg);
+    Serial.printf("%s → amount %.2f (%.0f µs)\n", name, a, joints[j].targetUs);
+  }
+  else if (sscanf(cmd.c_str(), "us %d %f", &ch, &a) == 2) {
+    int j = jointForChannel(0, ch);
+    if (j < 0 || !joints[j].enabled) { Serial.println("channel not enabled"); return; }
+    currentAnim = ANIM_MANUAL;
+    setJointUs(j, a);
+    Serial.printf("ch%d (%s) → %.0f µs\n", ch, joints[j].name, joints[j].targetUs);
   }
   else if (sscanf(cmd.c_str(), "servo %d %f", &ch, &a) == 2) {
     int j = jointForChannel(0, ch);
     if (j < 0 || !joints[j].enabled) { Serial.println("channel not enabled"); return; }
     currentAnim = ANIM_MANUAL;
     setJointDeg(j, a);
-    Serial.printf("ch%d (%s) → %.1f°\n", ch, joints[j].name, joints[j].targetDeg);
+    Serial.printf("ch%d (%s) → %.0f µs\n", ch, joints[j].name, joints[j].targetUs);
   }
-  else Serial.println("commands: idle wave walk stop rest cal scan | joint <name> <0..1> | servo <ch> <deg>");
+  else Serial.println("commands: idle wave walk stop rest cal scan | joint <name> <0..1> | servo <ch> <deg> | us <ch> <us>");
 }
 
 // ══════════════════════════════════════════════
@@ -383,7 +397,7 @@ void setup() {
 
   // Rest pose, one joint at a time to avoid a current spike
   for (uint8_t j = 0; j < NUM_JOINTS; j++) {
-    joints[j].targetDeg = joints[j].restDeg;
+    joints[j].targetUs = joints[j].restUs;
     if (joints[j].enabled) { updateJoints(0); delay(150); }
   }
 
@@ -396,7 +410,7 @@ void setup() {
   else Serial.println("[WIFI] not connected — serial only");
 
   printCal();
-  Serial.println("ready: idle wave walk stop rest cal scan | joint <name> <0..1> | servo <ch> <deg>");
+  Serial.println("ready: idle wave walk stop rest cal scan | joint <name> <0..1> | servo <ch> <deg> | us <ch> <us>");
   lastUs = micros();
 }
 
