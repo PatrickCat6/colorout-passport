@@ -15,7 +15,7 @@ Head and arms measured by hand on 2026-10-21 with the previous firmware, convert
 | 1 | Head tilt | MG996R | 1500 µs | 1050 µs (looks down) | 1050 … 1500 | calibrated |
 | 2 | Left shoulder (raises arm sideways) | MG996R | 1300 µs | 2400 µs (arm out to the side) | 1300 … 2400 | calibrated |
 | 3 | Left arm (bends forward) | MG996R | 1950 µs (straight) | 1200 µs (slightly bent) | 1200 … 1950 | calibrated |
-| 4 | Right shoulder (raises arm sideways) | MG996R | 1500 µs | 600 µs (arm out to the side) | 600 … 1500 | calibrated |
+| 4 | Right shoulder (raises arm sideways) | MG996R | 1600 µs (moved 10° in) | 600 µs (arm out to the side) | 600 … 1700 | calibrated |
 | 5 | Right arm (bends forward) | MG996R | 1033 µs (straight) | 1811 µs (slightly bent) | 1033 … 1811 | calibrated |
 | 6 | Left hip roll | DS3218 | — | — | — | to calibrate |
 | 7 | Right hip roll | DS3218 | — | — | — | to calibrate |

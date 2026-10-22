@@ -93,7 +93,7 @@ Joint joints[NUM_JOINTS] = {
   { "head_tilt",     0,  1, 1500,  1050,  1050,  1500,  true  },  // end = mira abajo
   { "l_shoulder",    0,  2, 1300,  2400,  1300,  2400,  true  },  // end = brazo de lado
   { "l_arm",         0,  3, 1950,  1200,  1200,  1950,  true  },  // rest = recto, end = doblado
-  { "r_shoulder",    0,  4, 1500,   600,   600,  1500,  true  },  // end = brazo de lado
+  { "r_shoulder",    0,  4, 1600,   600,   600,  1700,  true  },  // end = brazo de lado; rest 10° más adentro
   { "r_arm",         0,  5, 1033,  1811,  1033,  1811,  true  },  // rest = recto, end = doblado
   // Legs and wings: placeholders until calibrated by hand (same method as above)
   { "l_hip_roll",    0,  6, 1500,  1500,  1500,  1500,  false },
