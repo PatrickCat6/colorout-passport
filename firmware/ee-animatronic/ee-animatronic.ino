@@ -1,25 +1,31 @@
 /*
  * EE Animatronic — NEEoColorphism Voxel Character
- * ESP32-S3 + PCA9685 + TB6612FNG + HC-SR04
- *
- * Translates Three.js gallery animations (walk, wave)
- * into physical servo movements at 1:2 scale (56cm).
+ * ESP32-S3 + PCA9685
  *
  * Patrick Cat / Mixi Art Studio 2026
  *
- * Hardware:
+ * Sides are always EE's own: "left" = EE's left arm, as if you were EE.
+ *
+ * Hardware (current build):
  *   - ESP32-S3 DevKitC
- *   - PCA9685 16-ch PWM driver (I2C addr 0x40)
- *   - 5× MG996R servos (head, 2× shoulder, 2× hip)
- *   - 4× SG90 micro servos (2× wing, 2× ankle)
- *   - 2× TB6612FNG motor drivers (3× N20 30RPM motors)
- *   - 5× HC-SR04 ultrasonic sensors
- *   - 1000µF capacitor on servo power rail
- *   - 6V 5A power supply for servos/motors
+ *   - PCA9685 #1 (I2C 0x40): head, shoulders/arms, legs, wings — 16 channels
+ *   - PCA9685 #2 (I2C 0x41): elbows (MG90S) — not wired yet
+ *   - Head: 2× MG996R (pan + tilt)
+ *   - Arms: 2× MG996R per side (shoulder raises sideways + arm bends forward)
+ *   - Legs: per side DS3218 hip roll + DS3218 hip pitch + RDS3225 knee + RDS3225 ankle
+ *   - Wings: 2× SG90
+ *   - 1000µF capacitor on each PCA9685 V+ rail
+ *
+ * Calibration:
+ *   Every joint has a REST and an END position in servo degrees (0 = servo centre,
+ *   1500 µs). Animations ask for an "amount": 0 = rest, 1 = end, in between = blend.
+ *   Each joint is also clamped to [minDeg, maxDeg] so no animation can push it
+ *   past what was tested by hand. Leg and wing joints stay disabled (no pulse at all)
+ *   until they are calibrated and set to enabled = true.
  *
  * Comms:
- *   - WiFi + OSC for TouchDesigner control
- *   - Serial for debug / direct commands
+ *   - Serial (115200) commands — see parseSerial()
+ *   - WiFi + OSC for TouchDesigner — see parseOSC()
  */
 
 #include <Wire.h>
@@ -30,671 +36,392 @@
 // ── CONFIG ──
 // ══════════════════════════════════════════════
 
-// WiFi — set your network
 const char* WIFI_SSID     = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASS";
-
-// OSC
 const unsigned int OSC_PORT = 9000;
 WiFiUDP udp;
+bool wifiOk = false;
 
-// I2C pins (ESP32-S3 defaults)
 #define SDA_PIN 8
 #define SCL_PIN 9
 
-// PCA9685
-#define PCA9685_ADDR  0x40
-#define PCA9685_FREQ  50       // 50Hz for servos (20ms period)
+#define PCA1_ADDR 0x40
+#define PCA2_ADDR 0x41
+#define PCA_FREQ  50
+
+// Servo degrees → pulse. 0° = 1500 µs, 10 µs per degree (±90° = 600–2400 µs).
+// Same mapping the calibration numbers were measured with.
+#define CENTER_US   1500.0f
+#define US_PER_DEG  10.0f
+
+// Max speed while moving to a target (deg/s). Protects gears and the power rail.
+#define MAX_SPEED_DEG_S 240.0f
 
 // ══════════════════════════════════════════════
-// ── SERVO CHANNEL MAP ──
+// ── JOINTS + CALIBRATION ──
 // ══════════════════════════════════════════════
-// Maps physical joints to PCA9685 channels.
-// Three.js character has these animated axes:
-//   head:      rotation.x (nod)
-//   leftArm:   rotation.x (swing forward/back)
-//   rightArm:  rotation.x (swing forward/back)
-//   leftLeg:   rotation.x (swing forward/back)
-//   rightLeg:  rotation.x (swing forward/back)
-//   leftWing:  rotation.y (flutter open/close)
-//   rightWing: rotation.y (flutter open/close)
 
-enum ServoChannel {
-  CH_HEAD        = 0,   // MG996R — nod up/down
-  CH_LEFT_ARM    = 1,   // MG996R — shoulder swing
-  CH_RIGHT_ARM   = 2,   // MG996R — shoulder swing
-  CH_LEFT_HIP    = 3,   // MG996R — hip swing
-  CH_RIGHT_HIP   = 4,   // MG996R — hip swing
-  CH_LEFT_WING   = 5,   // SG90  — wing flutter
-  CH_RIGHT_WING  = 6,   // SG90  — wing flutter
-  CH_LEFT_ANKLE  = 7,   // SG90  — foot compensation
-  CH_RIGHT_ANKLE = 8,   // SG90  — foot compensation
-  NUM_SERVOS     = 9
+struct Joint {
+  const char* name;
+  uint8_t pca;       // 0 = PCA #1 (0x40), 1 = PCA #2 (0x41)
+  uint8_t ch;        // channel on that PCA
+  float   restDeg;   // amount 0
+  float   endDeg;    // amount 1
+  float   minDeg;    // hard limits (servo degrees)
+  float   maxDeg;
+  bool    enabled;   // false = never driven
+  float   currentDeg;
+  float   targetDeg;
+  bool    started;   // first pulse sent
 };
 
-// Servo calibration: [center_us, min_us, max_us, max_angle_deg]
-// MG996R: ~500-2500µs, 180° range
-// SG90:   ~500-2400µs, 180° range
-// Center = physical 90° (neutral pose)
-struct ServoConfig {
-  uint16_t centerUs;   // microseconds at neutral
-  uint16_t minUs;      // microseconds at min angle
-  uint16_t maxUs;      // microseconds at max angle
-  float    maxAngle;   // degrees from center (symmetric ±)
-  bool     inverted;   // flip direction
+enum JointId {
+  HEAD_PAN, HEAD_TILT,
+  L_SHOULDER, L_ARM, R_SHOULDER, R_ARM,
+  L_HIP_ROLL, R_HIP_ROLL, L_HIP_PITCH, R_HIP_PITCH,
+  L_KNEE, R_KNEE, L_ANKLE, R_ANKLE,
+  L_WING, R_WING,
+  NUM_JOINTS
 };
 
-ServoConfig servoConfigs[NUM_SERVOS] = {
-  // ch  center  min   max   range  inv
-  { 1500,  600, 2400,  60, false },  // 0: head nod
-  { 1500,  600, 2400,  90, false },  // 1: left arm
-  { 1500,  600, 2400,  90, true  },  // 2: right arm (mirrored)
-  { 1500,  600, 2400,  60, false },  // 3: left hip
-  { 1500,  600, 2400,  60, true  },  // 4: right hip (mirrored)
-  { 1500,  800, 2200,  45, false },  // 5: left wing
-  { 1500,  800, 2200,  45, true  },  // 6: right wing (mirrored)
-  { 1500, 1000, 2000,  30, false },  // 7: left ankle
-  { 1500, 1000, 2000,  30, true  },  // 8: right ankle
+Joint joints[NUM_JOINTS] = {
+  //  name          pca ch  rest   end    min    max   enabled
+  { "head_pan",      0,  0,   0,    45,   -45,    45,  true  },  // end = mira a un lado, -1 = al otro
+  { "head_tilt",     0,  1,   0,   -45,   -45,     0,  true  },  // end = mira abajo
+  { "l_shoulder",    0,  2,  20,   -90,   -90,    20,  true  },  // end = brazo de lado
+  { "l_arm",         0,  3,  30,   -20,   -20,    30,  true  },  // end = doblado
+  { "r_shoulder",    0,  4,   0,    90,     0,    90,  true  },  // end = brazo de lado
+  { "r_arm",         0,  5, -30,    20,   -30,    20,  true  },  // end = doblado
+  // Legs and wings: placeholders until calibrated by hand (same method as above)
+  { "l_hip_roll",    0,  6,   0,     0,     0,     0,  false },
+  { "r_hip_roll",    0,  7,   0,     0,     0,     0,  false },
+  { "l_hip_pitch",   0,  8,   0,     0,     0,     0,  false },
+  { "r_hip_pitch",   0,  9,   0,     0,     0,     0,  false },
+  { "l_knee",        0, 10,   0,     0,     0,     0,  false },
+  { "r_knee",        0, 11,   0,     0,     0,     0,  false },
+  { "l_ankle",       0, 12,   0,     0,     0,     0,  false },
+  { "r_ankle",       0, 13,   0,     0,     0,     0,  false },
+  { "l_wing",        0, 14,   0,     0,     0,     0,  false },
+  { "r_wing",        0, 15,   0,     0,     0,     0,  false },
 };
 
-// Current servo positions (microseconds)
-uint16_t servoCurrentUs[NUM_SERVOS];
-
 // ══════════════════════════════════════════════
-// ── MOTOR PINS (TB6612FNG) ──
+// ── ULTRASONIC SENSORS (3× HC-SR04, ECHO through 5V→3.3V divider) ──
 // ══════════════════════════════════════════════
-// Motor A = left wheels, Motor B = right wheels
-// Using two TB6612FNG boards for 3 motors total
-// Board 1: left motor + right motor (differential drive)
-// Board 2: rear/center motor (optional extra traction)
 
-#define MOTOR_STBY_1  4    // Standby pin board 1
-#define MOTOR_AIN1    5    // Left motor direction
-#define MOTOR_AIN2    6    // Left motor direction
-#define MOTOR_PWMA    7    // Left motor speed (PWM)
-#define MOTOR_BIN1   15    // Right motor direction
-#define MOTOR_BIN2   16    // Right motor direction
-#define MOTOR_PWMB   17    // Right motor speed (PWM)
-
-#define MOTOR_STBY_2 18    // Standby pin board 2
-#define MOTOR_CIN1   10    // Center motor direction
-#define MOTOR_CIN2   11    // Center motor direction
-#define MOTOR_PWMC   12    // Center motor speed (PWM)
-
-// PWM channels for motors (ESP32 LEDC)
-#define LEDC_CH_A  0
-#define LEDC_CH_B  1
-#define LEDC_CH_C  2
-#define LEDC_FREQ  1000    // 1kHz PWM for motors
-#define LEDC_RES   8       // 8-bit resolution (0-255)
-
-// ══════════════════════════════════════════════
-// ── ULTRASONIC SENSORS ──
-// ══════════════════════════════════════════════
-// 5× HC-SR04: front, left-front, right-front, left, right
-
-struct UltrasonicSensor {
-  uint8_t trigPin;
-  uint8_t echoPin;
-  float   distanceCm;
-};
-
-#define NUM_SENSORS 5
+struct UltrasonicSensor { uint8_t trigPin, echoPin; float distanceCm; };
+#define NUM_SENSORS 3
 UltrasonicSensor sensors[NUM_SENSORS] = {
-  { 35, 36, 999.0 },   // front
-  { 37, 38, 999.0 },   // left-front
-  { 39, 40, 999.0 },   // right-front
-  { 41, 42, 999.0 },   // left
-  { 47, 48, 999.0 },   // right
+  { 38, 39, 999.0 },   // front (belly)
+  { 40, 41, 999.0 },   // left (head side)
+  { 42, 48, 999.0 },   // right (head side)
 };
 
-#define OBSTACLE_DIST_CM  15.0  // stop/avoid threshold
-
 // ══════════════════════════════════════════════
-// ── ANIMATION STATE ──
-// ══════════════════════════════════════════════
-// Translated from Three.js:
-//   walkPhase += dt * WALK_SPEED_ANIM (8)
-//   legSwing = sin(walkPhase) * 0.5   → ±28.6°
-//   armSwing = sin(walkPhase) * 0.35  → ±20°
-//   walkBob  = |sin(walkPhase)| * 0.025 (vertical — no servo for this)
-//   headBob  = sin(walkPhase*2) * 0.02 → ±1.15°
-//
-// Radian-to-degree conversion for servo angles:
-//   0.5 rad  = 28.6°   (leg swing amplitude)
-//   0.35 rad = 20.1°   (arm swing amplitude)
-//   0.8 rad  = 45.8°   (wave arm raise)
-//   wing flutter ±0.22 rad = ±12.6° walking, ±0.1 rad = ±5.7° idle
-
-enum AnimState {
-  ANIM_IDLE,
-  ANIM_WALK,
-  ANIM_WAVE,
-  ANIM_OSC_CONTROL // direct control from TouchDesigner
-};
-
-AnimState currentAnim = ANIM_IDLE;
-float walkPhase = 0.0;
-float actionTimer = 0.0;
-bool isWalking = false;
-unsigned long lastUpdateUs = 0;
-
-// Motor state
-int16_t motorSpeedLeft  = 0;  // -255 to 255
-int16_t motorSpeedRight = 0;
-bool motorsEnabled = false;
-
-// ══════════════════════════════════════════════
-// ── PCA9685 DRIVER ──
+// ── PCA9685 ──
 // ══════════════════════════════════════════════
 
-void pca9685Write(uint8_t reg, uint8_t val) {
-  Wire.beginTransmission(PCA9685_ADDR);
-  Wire.write(reg);
-  Wire.write(val);
+const uint8_t pcaAddr[2] = { PCA1_ADDR, PCA2_ADDR };
+bool pcaPresent[2] = { false, false };
+
+void pcaWrite(uint8_t a, uint8_t reg, uint8_t val) {
+  Wire.beginTransmission(a); Wire.write(reg); Wire.write(val); Wire.endTransmission();
+}
+
+bool pcaInit(uint8_t idx) {
+  uint8_t a = pcaAddr[idx];
+  Wire.beginTransmission(a);
+  if (Wire.endTransmission() != 0) return false;
+  pcaWrite(a, 0x00, 0x10);                         // sleep
+  delay(5);
+  uint8_t prescale = (uint8_t)(25000000.0 / (4096.0 * PCA_FREQ) + 0.5) - 1;  // 121 @ 50 Hz
+  pcaWrite(a, 0xFE, prescale);
+  pcaWrite(a, 0x00, 0x20);                         // wake, auto-increment
+  delay(5);
+  pcaWrite(a, 0x00, 0xA0);                         // restart
+  delay(5);
+  for (uint8_t ch = 0; ch < 16; ch++) {            // all outputs off (no pulse)
+    Wire.beginTransmission(a);
+    Wire.write(0x06 + ch * 4);
+    Wire.write(0); Wire.write(0); Wire.write(0); Wire.write(0x10);  // full OFF
+    Wire.endTransmission();
+  }
+  return true;
+}
+
+void pcaSetUs(uint8_t idx, uint8_t ch, float us) {
+  if (!pcaPresent[idx]) return;
+  uint16_t ticks = (uint16_t)(us * 4096.0f / 20000.0f + 0.5f);
+  Wire.beginTransmission(pcaAddr[idx]);
+  Wire.write(0x06 + ch * 4);
+  Wire.write(0); Wire.write(0);
+  Wire.write(ticks & 0xFF); Wire.write(ticks >> 8);
   Wire.endTransmission();
 }
 
-void pca9685Init() {
-  // Reset
-  pca9685Write(0x00, 0x10);  // sleep mode
-  delay(5);
+// ══════════════════════════════════════════════
+// ── JOINT CONTROL ──
+// ══════════════════════════════════════════════
 
-  // Set frequency: prescale = round(25MHz / (4096 * freq)) - 1
-  // For 50Hz: round(25000000 / (4096 * 50)) - 1 = 121
-  uint8_t prescale = 121;
-  pca9685Write(0xFE, prescale);
+float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-  // Wake up
-  pca9685Write(0x00, 0x20);  // auto-increment enabled
-  delay(5);
-  pca9685Write(0x00, 0x20 | 0x80);  // restart + auto-increment
-  delay(5);
-
-  Serial.println("[PCA9685] Initialized at 50Hz");
+// Raw servo degrees (still clamped to the joint's tested limits)
+void setJointDeg(uint8_t j, float deg) {
+  if (j >= NUM_JOINTS || !joints[j].enabled) return;
+  joints[j].targetDeg = clampf(deg, joints[j].minDeg, joints[j].maxDeg);
 }
 
-void pca9685SetPWM(uint8_t channel, uint16_t onTime, uint16_t offTime) {
-  uint8_t reg = 0x06 + (channel * 4);
-  Wire.beginTransmission(PCA9685_ADDR);
-  Wire.write(reg);
-  Wire.write(onTime & 0xFF);
-  Wire.write(onTime >> 8);
-  Wire.write(offTime & 0xFF);
-  Wire.write(offTime >> 8);
-  Wire.endTransmission();
+// Amount: 0 = rest, 1 = end. Negative values only matter for two-sided joints (head pan).
+void setJoint(uint8_t j, float amount) {
+  if (j >= NUM_JOINTS) return;
+  Joint& J = joints[j];
+  setJointDeg(j, J.restDeg + amount * (J.endDeg - J.restDeg));
 }
 
-// Set servo position in microseconds
-void setServoUs(uint8_t channel, uint16_t us) {
-  // PCA9685 at 50Hz: 20ms period = 4096 ticks
-  // 1µs = 4096/20000 = 0.2048 ticks
-  uint16_t ticks = (uint16_t)((float)us * 4096.0 / 20000.0);
-  pca9685SetPWM(channel, 0, ticks);
-  if (channel < NUM_SERVOS) {
-    servoCurrentUs[channel] = us;
+void allToRest() { for (uint8_t j = 0; j < NUM_JOINTS; j++) setJoint(j, 0); }
+
+// Called every loop: moves each joint toward its target at MAX_SPEED_DEG_S
+void updateJoints(float dt) {
+  float step = MAX_SPEED_DEG_S * dt;
+  for (uint8_t j = 0; j < NUM_JOINTS; j++) {
+    Joint& J = joints[j];
+    if (!J.enabled) continue;
+    if (!J.started) {                 // first pulse: go straight to target (position unknown)
+      J.currentDeg = J.targetDeg;
+      J.started = true;
+    } else {
+      float d = J.targetDeg - J.currentDeg;
+      J.currentDeg += clampf(d, -step, step);
+    }
+    pcaSetUs(J.pca, J.ch, CENTER_US + J.currentDeg * US_PER_DEG);
   }
 }
 
-// Set servo by angle in degrees (0 = center, positive/negative from center)
-void setServoAngle(uint8_t channel, float angleDeg) {
-  if (channel >= NUM_SERVOS) return;
-
-  ServoConfig& cfg = servoConfigs[channel];
-
-  // Clamp angle
-  if (angleDeg > cfg.maxAngle)  angleDeg = cfg.maxAngle;
-  if (angleDeg < -cfg.maxAngle) angleDeg = -cfg.maxAngle;
-
-  // Invert if needed
-  if (cfg.inverted) angleDeg = -angleDeg;
-
-  // Map angle to microseconds
-  // center ± (angle/maxAngle) * (max-center or center-min)
-  uint16_t us;
-  if (angleDeg >= 0) {
-    us = cfg.centerUs + (uint16_t)(angleDeg / cfg.maxAngle * (cfg.maxUs - cfg.centerUs));
-  } else {
-    us = cfg.centerUs - (uint16_t)(-angleDeg / cfg.maxAngle * (cfg.centerUs - cfg.minUs));
-  }
-
-  setServoUs(channel, us);
+int findJoint(const char* name) {
+  for (uint8_t j = 0; j < NUM_JOINTS; j++) if (strcmp(joints[j].name, name) == 0) return j;
+  return -1;
 }
 
-// Set servo from Three.js radians (direct translation)
-void setServoRad(uint8_t channel, float rad) {
-  setServoAngle(channel, rad * 57.2958);  // rad to deg
+int jointForChannel(uint8_t pca, uint8_t ch) {
+  for (uint8_t j = 0; j < NUM_JOINTS; j++) if (joints[j].pca == pca && joints[j].ch == ch) return j;
+  return -1;
 }
 
 // ══════════════════════════════════════════════
-// ── MOTOR CONTROL ──
+// ── SENSORS ──
 // ══════════════════════════════════════════════
 
-void motorsInit() {
-  pinMode(MOTOR_STBY_1, OUTPUT);
-  pinMode(MOTOR_AIN1, OUTPUT);
-  pinMode(MOTOR_AIN2, OUTPUT);
-  pinMode(MOTOR_BIN1, OUTPUT);
-  pinMode(MOTOR_BIN2, OUTPUT);
-
-  pinMode(MOTOR_STBY_2, OUTPUT);
-  pinMode(MOTOR_CIN1, OUTPUT);
-  pinMode(MOTOR_CIN2, OUTPUT);
-
-  // Setup LEDC PWM for motor speed
-  ledcAttach(MOTOR_PWMA, LEDC_FREQ, LEDC_RES);
-  ledcAttach(MOTOR_PWMB, LEDC_FREQ, LEDC_RES);
-  ledcAttach(MOTOR_PWMC, LEDC_FREQ, LEDC_RES);
-
-  // Enable motor drivers
-  digitalWrite(MOTOR_STBY_1, HIGH);
-  digitalWrite(MOTOR_STBY_2, HIGH);
-
-  Serial.println("[MOTORS] Initialized");
-}
-
-void setMotor(uint8_t in1, uint8_t in2, uint8_t pwmPin, int16_t speed) {
-  if (speed > 0) {
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
-    ledcWrite(pwmPin, min((int)speed, 255));
-  } else if (speed < 0) {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    ledcWrite(pwmPin, min((int)-speed, 255));
-  } else {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, LOW);
-    ledcWrite(pwmPin, 0);
-  }
-}
-
-void setMotors(int16_t left, int16_t right) {
-  motorSpeedLeft = left;
-  motorSpeedRight = right;
-  setMotor(MOTOR_AIN1, MOTOR_AIN2, MOTOR_PWMA, left);
-  setMotor(MOTOR_BIN1, MOTOR_BIN2, MOTOR_PWMB, right);
-  // Center motor gets average for extra traction
-  setMotor(MOTOR_CIN1, MOTOR_CIN2, MOTOR_PWMC, (left + right) / 2);
-}
-
-void motorsStop() {
-  setMotors(0, 0);
-}
-
-// ══════════════════════════════════════════════
-// ── ULTRASONIC SENSORS ──
-// ══════════════════════════════════════════════
-
-float readUltrasonic(uint8_t trigPin, uint8_t echoPin) {
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-
-  long duration = pulseIn(echoPin, HIGH, 30000);  // 30ms timeout (~5m max)
-  if (duration == 0) return 999.0;
-  return duration * 0.0343 / 2.0;  // cm
+float readUltrasonic(uint8_t trig, uint8_t echo) {
+  digitalWrite(trig, LOW);  delayMicroseconds(2);
+  digitalWrite(trig, HIGH); delayMicroseconds(10);
+  digitalWrite(trig, LOW);
+  long d = pulseIn(echo, HIGH, 25000);
+  return d == 0 ? 999.0 : d * 0.0343 / 2.0;
 }
 
 void sensorsInit() {
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    pinMode(sensors[i].trigPin, OUTPUT);
-    pinMode(sensors[i].echoPin, INPUT);
-  }
-  Serial.println("[SENSORS] Initialized");
+  for (int i = 0; i < NUM_SENSORS; i++) { pinMode(sensors[i].trigPin, OUTPUT); pinMode(sensors[i].echoPin, INPUT); }
 }
 
-// Read one sensor per call (non-blocking rotation)
 uint8_t currentSensor = 0;
-void sensorsUpdate() {
-  sensors[currentSensor].distanceCm =
-    readUltrasonic(sensors[currentSensor].trigPin, sensors[currentSensor].echoPin);
+unsigned long lastSensorMs = 0;
+void sensorsUpdate() {                       // one sensor every 40 ms
+  if (millis() - lastSensorMs < 40) return;
+  lastSensorMs = millis();
+  sensors[currentSensor].distanceCm = readUltrasonic(sensors[currentSensor].trigPin, sensors[currentSensor].echoPin);
   currentSensor = (currentSensor + 1) % NUM_SENSORS;
 }
 
-bool obstacleAhead() {
-  return sensors[0].distanceCm < OBSTACLE_DIST_CM;  // front sensor
+// ══════════════════════════════════════════════
+// ── ANIMATIONS (upper body; legs join when calibrated) ──
+// ══════════════════════════════════════════════
+
+enum AnimState { ANIM_IDLE, ANIM_WAVE, ANIM_WALK, ANIM_MANUAL };
+AnimState currentAnim = ANIM_IDLE;
+float animT = 0;
+
+void animIdle(float t) {
+  // slow look-around + breathing in the arms
+  setJoint(HEAD_PAN,  0.45f * sinf(t * 0.35f) + 0.15f * sinf(t * 0.9f));
+  setJoint(HEAD_TILT, 0.12f + 0.08f * sinf(t * 0.5f));
+  float breath = 0.04f + 0.04f * sinf(t * 1.2f);
+  setJoint(L_SHOULDER, breath);
+  setJoint(R_SHOULDER, breath);
+  setJoint(L_ARM, 0.1f);
+  setJoint(R_ARM, 0.1f);
 }
 
-bool obstacleLeft() {
-  return sensors[1].distanceCm < OBSTACLE_DIST_CM || sensors[3].distanceCm < OBSTACLE_DIST_CM;
+// Right arm (EE's right) raises sideways and the arm waves 3 times
+void animWave(float t) {
+  const float up = 0.8f, hold = 2.4f, down = 0.8f;
+  float raise;
+  if (t < up)               raise = t / up;
+  else if (t < up + hold)   raise = 1.0f;
+  else if (t < up + hold + down) raise = 1.0f - (t - up - hold) / down;
+  else { currentAnim = ANIM_IDLE; animT = 0; return; }
+  setJoint(R_SHOULDER, 0.85f * raise);
+  float wave = (t > up && t < up + hold) ? 0.5f + 0.5f * sinf((t - up) * 2.0f * PI * 1.25f) : 0.3f;
+  setJoint(R_ARM, wave * raise);
+  setJoint(HEAD_PAN, -0.3f * raise);         // looks toward the waving arm
+  setJoint(HEAD_TILT, 0.0f);
+  setJoint(L_SHOULDER, 0.05f);
+  setJoint(L_ARM, 0.1f);
 }
 
-bool obstacleRight() {
-  return sensors[2].distanceCm < OBSTACLE_DIST_CM || sensors[4].distanceCm < OBSTACLE_DIST_CM;
+// Arm swing while walking (legs added once calibrated)
+void animWalk(float t) {
+  float s = sinf(t * 2.0f * PI * 0.8f);
+  setJoint(L_ARM, 0.5f + 0.5f * s);
+  setJoint(R_ARM, 0.5f - 0.5f * s);
+  setJoint(L_SHOULDER, 0.08f);
+  setJoint(R_SHOULDER, 0.08f);
+  setJoint(HEAD_PAN, 0.1f * s);
+  setJoint(HEAD_TILT, 0.1f);
 }
 
 // ══════════════════════════════════════════════
-// ── ANIMATION ENGINE ──
+// ── SERIAL COMMANDS ──
 // ══════════════════════════════════════════════
-// Direct translation from viewingroom.html animations.
-// All angles in radians to match Three.js source.
+//   idle | wave | walk | stop       animations (stop = everything to rest)
+//   rest                            all joints to rest, manual mode
+//   joint <name> <amount>           e.g. joint r_shoulder 0.5   (0 = rest, 1 = end)
+//   servo <ch> <deg>                raw degrees on PCA #1, clamped to that joint's limits
+//   cal                             print the calibration table
+//   scan                            read the ultrasonic sensors
 
-void animIdle(float dt) {
-  // Gentle decay of walk phase
-  walkPhase *= 0.9;
-
-  float legSwing = sin(walkPhase) * 0.5 * 0.05;   // tiny residual
-  float armSwing = sin(walkPhase) * 0.35 * 0.05;
-  float headBob  = sin(walkPhase * 2) * 0.02 * 0.15;
-
-  setServoRad(CH_HEAD,      headBob);
-  setServoRad(CH_LEFT_ARM,  -armSwing);   // opposite to legs
-  setServoRad(CH_RIGHT_ARM,  armSwing);
-  setServoRad(CH_LEFT_HIP,   legSwing);
-  setServoRad(CH_RIGHT_HIP, -legSwing);
-
-  // Wing flutter — slow idle
-  float wingFlutter = sin(millis() * 0.006) * 0.1;
-  setServoRad(CH_LEFT_WING,   wingFlutter - 0.12);
-  setServoRad(CH_RIGHT_WING, -wingFlutter + 0.12);
-
-  // Ankles neutral
-  setServoRad(CH_LEFT_ANKLE,  0);
-  setServoRad(CH_RIGHT_ANKLE, 0);
-}
-
-void animWalk(float dt) {
-  // walkPhase += dt * 8
-  walkPhase += dt * 8.0;
-
-  float legSwing = sin(walkPhase) * 0.5;     // ±28.6°
-  float armSwing = sin(walkPhase) * 0.35;    // ±20°
-  float headBob  = sin(walkPhase * 2) * 0.02; // ±1.15°
-
-  setServoRad(CH_HEAD,      headBob);
-  setServoRad(CH_LEFT_ARM,  -armSwing);   // arms opposite to legs
-  setServoRad(CH_RIGHT_ARM,  armSwing);
-  setServoRad(CH_LEFT_HIP,   legSwing);
-  setServoRad(CH_RIGHT_HIP, -legSwing);
-
-  // Wing flutter — faster while walking
-  float wingFlutter = sin(millis() * 0.012) * 0.22;
-  setServoRad(CH_LEFT_WING,   wingFlutter - 0.12);
-  setServoRad(CH_RIGHT_WING, -wingFlutter + 0.12);
-
-  // Ankle compensation: tilt opposite to leg swing for foot contact
-  float ankleComp = -legSwing * 0.4;  // partial compensation
-  setServoRad(CH_LEFT_ANKLE,   ankleComp);
-  setServoRad(CH_RIGHT_ANKLE, -ankleComp);
-
-  // Sync wheels with walk — move forward at walking pace
-  if (motorsEnabled && !obstacleAhead()) {
-    int16_t walkSpeed = 100;  // moderate speed to match leg cadence
-    setMotors(walkSpeed, walkSpeed);
-  } else {
-    motorsStop();
+void printCal() {
+  Serial.println("joint         pca ch   rest    end    min    max  on   now");
+  for (uint8_t j = 0; j < NUM_JOINTS; j++) {
+    Joint& J = joints[j];
+    Serial.printf("%-13s %3d %2d %6.1f %6.1f %6.1f %6.1f  %s %6.1f\n", J.name, J.pca + 1, J.ch,
+                  J.restDeg, J.endDeg, J.minDeg, J.maxDeg, J.enabled ? "y" : "-", J.currentDeg);
   }
 }
-
-void animWave(float dt) {
-  actionTimer += dt;
-  float t = actionTimer;
-  float waveDur = 0.8;  // slower than Three.js (0.4s) for physical servo travel
-  float waveT = min(t / waveDur, 1.0f);
-  float waveUp = sin(waveT * PI);   // 0→1→0 smooth
-
-  // Right arm raises
-  setServoRad(CH_RIGHT_ARM, -0.8 * waveUp);  // -45.8° at peak
-  setServoRad(CH_LEFT_ARM,   0);
-  setServoRad(CH_LEFT_HIP,   0);
-  setServoRad(CH_RIGHT_HIP,  0);
-  setServoRad(CH_HEAD,        0);
-
-  // Wings neutral during wave
-  setServoRad(CH_LEFT_WING,  -0.12);
-  setServoRad(CH_RIGHT_WING,  0.12);
-
-  setServoRad(CH_LEFT_ANKLE,  0);
-  setServoRad(CH_RIGHT_ANKLE, 0);
-
-  if (t > waveDur) {
-    currentAnim = isWalking ? ANIM_WALK : ANIM_IDLE;
-    actionTimer = 0;
-  }
-}
-
-// ══════════════════════════════════════════════
-// ── OSC PARSER (minimal, no library needed) ──
-// ══════════════════════════════════════════════
-// Handles:
-//   /ee/anim  <string>    — set animation (idle/walk/wave)
-//   /ee/walk  <int 0|1>   — walk on/off (enables motors)
-//   /ee/servo <int ch> <float angle_deg> — direct servo control
-//   /ee/motor <int left> <int right>     — direct motor control
-//   /ee/stop                              — emergency stop
-
-void parseOSC(uint8_t* buf, int len) {
-  if (len < 4) return;
-
-  // Extract address pattern (null-terminated, padded to 4 bytes)
-  char addr[64] = {0};
-  int i = 0;
-  while (i < len && i < 63 && buf[i] != 0) {
-    addr[i] = buf[i];
-    i++;
-  }
-  addr[i] = 0;
-
-  // Skip to type tag string (aligned to 4 bytes)
-  int addrEnd = ((i + 1) + 3) & ~3;
-
-  // Parse known addresses
-  if (strcmp(addr, "/ee/anim") == 0) {
-    // Find string argument
-    int argStart = addrEnd;
-    // Skip type tag ",s\0\0"
-    argStart = ((argStart + 4) + 3) & ~3;
-    if (argStart < len) {
-      char* animName = (char*)&buf[argStart];
-      if (strcmp(animName, "idle") == 0)        currentAnim = ANIM_IDLE;
-      else if (strcmp(animName, "walk") == 0)   { currentAnim = ANIM_WALK; isWalking = true; motorsEnabled = true; }
-      else if (strcmp(animName, "wave") == 0)   { currentAnim = ANIM_WAVE; actionTimer = 0; }
-      else if (strcmp(animName, "osc") == 0)    currentAnim = ANIM_OSC_CONTROL;
-      Serial.printf("[OSC] anim → %s\n", animName);
-    }
-  }
-  else if (strcmp(addr, "/ee/walk") == 0) {
-    int argStart = ((addrEnd + 4) + 3) & ~3;
-    if (argStart + 4 <= len) {
-      // Big-endian int32
-      int32_t val = (buf[argStart] << 24) | (buf[argStart+1] << 16) |
-                    (buf[argStart+2] << 8) | buf[argStart+3];
-      isWalking = val != 0;
-      motorsEnabled = isWalking;
-      currentAnim = isWalking ? ANIM_WALK : ANIM_IDLE;
-      Serial.printf("[OSC] walk → %d\n", val);
-    }
-  }
-  else if (strcmp(addr, "/ee/servo") == 0) {
-    // Direct servo: channel (int) + angle (float)
-    int argStart = ((addrEnd + 4) + 3) & ~3;
-    if (argStart + 8 <= len) {
-      int32_t ch = (buf[argStart] << 24) | (buf[argStart+1] << 16) |
-                   (buf[argStart+2] << 8) | buf[argStart+3];
-      // Float is big-endian
-      uint32_t fb = (buf[argStart+4] << 24) | (buf[argStart+5] << 16) |
-                    (buf[argStart+6] << 8) | buf[argStart+7];
-      float angle;
-      memcpy(&angle, &fb, 4);
-      if (ch >= 0 && ch < NUM_SERVOS) {
-        currentAnim = ANIM_OSC_CONTROL;
-        setServoAngle(ch, angle);
-        Serial.printf("[OSC] servo ch%d → %.1f°\n", ch, angle);
-      }
-    }
-  }
-  else if (strcmp(addr, "/ee/motor") == 0) {
-    int argStart = ((addrEnd + 4) + 3) & ~3;
-    if (argStart + 8 <= len) {
-      int32_t left = (buf[argStart] << 24) | (buf[argStart+1] << 16) |
-                     (buf[argStart+2] << 8) | buf[argStart+3];
-      int32_t right = (buf[argStart+4] << 24) | (buf[argStart+5] << 16) |
-                      (buf[argStart+6] << 8) | buf[argStart+7];
-      setMotors(left, right);
-      Serial.printf("[OSC] motor L:%d R:%d\n", left, right);
-    }
-  }
-  else if (strcmp(addr, "/ee/stop") == 0) {
-    currentAnim = ANIM_IDLE;
-    isWalking = false;
-    motorsEnabled = false;
-    motorsStop();
-    Serial.println("[OSC] STOP");
-  }
-}
-
-// ══════════════════════════════════════════════
-// ── SERIAL COMMAND PARSER ──
-// ══════════════════════════════════════════════
-// Simple text commands for testing without WiFi:
-//   idle / walk / wave / stop
-//   servo <ch> <angle_deg>
-//   motor <left> <right>
-//   center  — all servos to center
-//   scan    — read all ultrasonic sensors
 
 void parseSerial(String cmd) {
   cmd.trim();
-
-  if (cmd == "idle")         { currentAnim = ANIM_IDLE; isWalking = false; motorsEnabled = false; motorsStop(); }
-  else if (cmd == "walk")    { currentAnim = ANIM_WALK; isWalking = true; motorsEnabled = true; }
-  else if (cmd == "wave")    { currentAnim = ANIM_WAVE; actionTimer = 0; }
-  else if (cmd == "stop")    { currentAnim = ANIM_IDLE; isWalking = false; motorsEnabled = false; motorsStop(); }
-  else if (cmd == "center")  {
-    for (int i = 0; i < NUM_SERVOS; i++) setServoAngle(i, 0);
-    Serial.println("All servos centered");
-  }
+  char name[24]; float a; int ch;
+  if (cmd == "idle")      { currentAnim = ANIM_IDLE; animT = 0; }
+  else if (cmd == "wave") { currentAnim = ANIM_WAVE; animT = 0; }
+  else if (cmd == "walk") { currentAnim = ANIM_WALK; animT = 0; }
+  else if (cmd == "stop" || cmd == "rest") { currentAnim = ANIM_MANUAL; allToRest(); }
+  else if (cmd == "cal")  printCal();
   else if (cmd == "scan") {
     for (int i = 0; i < NUM_SENSORS; i++) {
       sensors[i].distanceCm = readUltrasonic(sensors[i].trigPin, sensors[i].echoPin);
-      Serial.printf("  Sensor %d: %.1f cm\n", i, sensors[i].distanceCm);
+      Serial.printf("  sensor %d: %.1f cm\n", i, sensors[i].distanceCm);
     }
   }
-  else if (cmd.startsWith("servo ")) {
-    int ch; float angle;
-    if (sscanf(cmd.c_str(), "servo %d %f", &ch, &angle) == 2) {
-      currentAnim = ANIM_OSC_CONTROL;
-      setServoAngle(ch, angle);
-      Serial.printf("Servo %d → %.1f°\n", ch, angle);
-    }
+  else if (sscanf(cmd.c_str(), "joint %23s %f", name, &a) == 2) {
+    int j = findJoint(name);
+    if (j < 0) { Serial.println("unknown joint (type 'cal' for names)"); return; }
+    currentAnim = ANIM_MANUAL;
+    setJoint(j, a);
+    Serial.printf("%s → amount %.2f (%.1f°)\n", name, a, joints[j].targetDeg);
   }
-  else if (cmd.startsWith("motor ")) {
-    int l, r;
-    if (sscanf(cmd.c_str(), "motor %d %d", &l, &r) == 2) {
-      setMotors(l, r);
-      Serial.printf("Motors L:%d R:%d\n", l, r);
-    }
+  else if (sscanf(cmd.c_str(), "servo %d %f", &ch, &a) == 2) {
+    int j = jointForChannel(0, ch);
+    if (j < 0 || !joints[j].enabled) { Serial.println("channel not enabled"); return; }
+    currentAnim = ANIM_MANUAL;
+    setJointDeg(j, a);
+    Serial.printf("ch%d (%s) → %.1f°\n", ch, joints[j].name, joints[j].targetDeg);
   }
-  else {
-    Serial.println("Commands: idle walk wave stop center scan servo<ch><deg> motor<L><R>");
+  else Serial.println("commands: idle wave walk stop rest cal scan | joint <name> <0..1> | servo <ch> <deg>");
+}
+
+// ══════════════════════════════════════════════
+// ── OSC (TouchDesigner) ──
+// ══════════════════════════════════════════════
+//   /ee/anim  <string>              idle | wave | walk | stop
+//   /ee/joint <string> <float>      joint name + amount
+//   /ee/servo <int> <float>         channel + raw degrees (clamped)
+
+static int oscPad(int n) { return (n + 3) & ~3; }
+static int32_t be32(const uint8_t* p) { return (int32_t)((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]); }
+static float beF(const uint8_t* p) { uint32_t u = (uint32_t)be32(p); float f; memcpy(&f, &u, 4); return f; }
+
+void parseOSC(uint8_t* buf, int len) {
+  if (len < 8) return;
+  const char* addr = (const char*)buf;
+  int p = oscPad(strnlen(addr, len) + 1);
+  if (p >= len || buf[p] != ',') return;
+  const char* tags = (const char*)&buf[p];
+  p += oscPad(strnlen(tags, len - p) + 1);
+
+  if (strcmp(addr, "/ee/anim") == 0 && tags[1] == 's') {
+    String s((const char*)&buf[p]);
+    parseSerial(s);
+  } else if (strcmp(addr, "/ee/joint") == 0 && tags[1] == 's' && tags[2] == 'f') {
+    const char* nm = (const char*)&buf[p];
+    int q = p + oscPad(strnlen(nm, len - p) + 1);
+    if (q + 4 > len) return;
+    int j = findJoint(nm);
+    if (j >= 0) { currentAnim = ANIM_MANUAL; setJoint(j, beF(&buf[q])); }
+  } else if (strcmp(addr, "/ee/servo") == 0 && tags[1] == 'i' && tags[2] == 'f') {
+    if (p + 8 > len) return;
+    int j = jointForChannel(0, be32(&buf[p]));
+    if (j >= 0) { currentAnim = ANIM_MANUAL; setJointDeg(j, beF(&buf[p + 4])); }
   }
 }
 
 // ══════════════════════════════════════════════
-// ── SETUP ──
+// ── SETUP / LOOP ──
 // ══════════════════════════════════════════════
+
+unsigned long lastUs = 0;
 
 void setup() {
   Serial.begin(115200);
   delay(500);
-  Serial.println("\n╔══════════════════════════════════╗");
-  Serial.println("║  EE Animatronic — NEEoColorphism ║");
-  Serial.println("║  ESP32-S3 + PCA9685 + TB6612FNG  ║");
-  Serial.println("╚══════════════════════════════════╝\n");
+  Serial.println("\nEE Animatronic — NEEoColorphism");
 
-  // I2C
   Wire.begin(SDA_PIN, SCL_PIN);
-  Wire.setClock(400000);  // 400kHz fast mode
+  Wire.setClock(400000);
+  pcaPresent[0] = pcaInit(0);
+  pcaPresent[1] = pcaInit(1);
+  Serial.printf("[PCA9685] #1 0x40: %s   #2 0x41: %s\n", pcaPresent[0] ? "ok" : "MISSING", pcaPresent[1] ? "ok" : "not found");
 
-  // PCA9685
-  pca9685Init();
-
-  // Center all servos on startup (safe position)
-  Serial.println("[BOOT] Centering servos...");
-  for (int i = 0; i < NUM_SERVOS; i++) {
-    setServoAngle(i, 0);
-    delay(50);  // stagger to avoid current spike
+  // Rest pose, one joint at a time to avoid a current spike
+  for (uint8_t j = 0; j < NUM_JOINTS; j++) {
+    joints[j].targetDeg = joints[j].restDeg;
+    if (joints[j].enabled) { updateJoints(0); delay(150); }
   }
 
-  // Motors
-  motorsInit();
-
-  // Ultrasonic sensors
   sensorsInit();
 
-  // WiFi
-  Serial.printf("[WIFI] Connecting to %s", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
+  for (int i = 0; i < 20 && WiFi.status() != WL_CONNECTED; i++) delay(250);
+  wifiOk = WiFi.status() == WL_CONNECTED;
+  if (wifiOk) { udp.begin(OSC_PORT); Serial.printf("[WIFI] %s  OSC :%d\n", WiFi.localIP().toString().c_str(), OSC_PORT); }
+  else Serial.println("[WIFI] not connected — serial only");
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf("[OSC]  Listening on port %d\n", OSC_PORT);
-    udp.begin(OSC_PORT);
-  } else {
-    Serial.println("\n[WIFI] Not connected — running in serial-only mode");
-  }
-
-  Serial.println("\n[READY] Type 'walk', 'wave', 'stop'");
-  Serial.println("        Or send OSC to /ee/anim, /ee/servo, /ee/motor");
-
-  lastUpdateUs = micros();
+  printCal();
+  Serial.println("ready: idle wave walk stop rest cal scan | joint <name> <0..1> | servo <ch> <deg>");
+  lastUs = micros();
 }
 
-// ══════════════════════════════════════════════
-// ── MAIN LOOP ──
-// ══════════════════════════════════════════════
-
 void loop() {
-  // Delta time
   unsigned long now = micros();
-  float dt = (now - lastUpdateUs) / 1000000.0;
-  lastUpdateUs = now;
+  float dt = (now - lastUs) / 1e6f;
+  lastUs = now;
+  if (dt > 0.1f) dt = 0.1f;
+  animT += dt;
 
-  // Clamp dt to avoid jumps
-  if (dt > 0.1) dt = 0.1;
+  if (Serial.available()) parseSerial(Serial.readStringUntil('\n'));
+  if (wifiOk) {
+    int n = udp.parsePacket();
+    if (n > 0) { uint8_t buf[256]; int len = udp.read(buf, sizeof(buf)); parseOSC(buf, len); }
+  }
 
-  // ── Read sensors (one per loop, ~200Hz rotation) ──
   sensorsUpdate();
 
-  // ── Check OSC ──
-  int packetSize = udp.parsePacket();
-  if (packetSize > 0) {
-    uint8_t buf[256];
-    int len = udp.read(buf, sizeof(buf));
-    parseOSC(buf, len);
-  }
-
-  // ── Check Serial ──
-  if (Serial.available()) {
-    String cmd = Serial.readStringUntil('\n');
-    parseSerial(cmd);
-  }
-
-  // ── Obstacle avoidance (interrupt walk if obstacle detected) ──
-  if (isWalking && currentAnim == ANIM_WALK) {
-    if (obstacleAhead()) {
-      motorsStop();
-      // Could add turn logic here
-    }
-  }
-
-  // ── Run animation ──
   switch (currentAnim) {
-    case ANIM_IDLE:    animIdle(dt);    break;
-    case ANIM_WALK:    animWalk(dt);    break;
-    case ANIM_WAVE:    animWave(dt);    break;
-    case ANIM_OSC_CONTROL: break;  // servos set directly via OSC
+    case ANIM_IDLE:   animIdle(animT); break;
+    case ANIM_WAVE:   animWave(animT); break;
+    case ANIM_WALK:   animWalk(animT); break;
+    case ANIM_MANUAL: break;
   }
 
-  // ── Loop timing: ~100Hz update rate ──
+  updateJoints(dt);
   delay(10);
 }

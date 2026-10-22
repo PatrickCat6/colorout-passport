@@ -1,114 +1,74 @@
-# EE Animatronic — Servo & Motor Mapping
+# EE Animatronic — Servo Map
 
-## Physical Scale
-- Three.js character: voxel scale 0.035m/unit
-- Animatronic: 1:2 scale → 56cm total height
-- Spine (2020 extrusion): ~24cm
-- Shoulders (2020): ~12cm
-- Hips (2020): ~7cm
+Sides are always **EE's own**: "left" = EE's left arm, as if you were EE.
+Degrees are servo degrees: 0° = servo centre (1500 µs), 10 µs per degree.
 
-## PCA9685 Channel Map
+## PCA9685 #1 (I2C 0x40)
 
-| Ch | Joint        | Servo  | Axis          | Three.js Source          | Range (deg) |
-|----|-------------|--------|---------------|--------------------------|-------------|
-| 0  | Head        | MG996R | nod (pitch)   | head.rotation.x          | ±60        |
-| 1  | Left Arm    | MG996R | swing (pitch) | leftArm.rotation.x       | ±90        |
-| 2  | Right Arm   | MG996R | swing (pitch) | rightArm.rotation.x      | ±90 (inv)  |
-| 3  | Left Hip    | MG996R | swing (pitch) | leftLeg.rotation.x       | ±60        |
-| 4  | Right Hip   | MG996R | swing (pitch) | rightLeg.rotation.x      | ±60 (inv)  |
-| 5  | Left Wing   | SG90   | flutter (yaw) | leftWing.rotation.y      | ±45        |
-| 6  | Right Wing  | SG90   | flutter (yaw) | rightWing.rotation.y     | ±45 (inv)  |
-| 7  | Left Ankle  | SG90   | comp (pitch)  | (derived from leg swing) | ±30        |
-| 8  | Right Ankle | SG90   | comp (pitch)  | (derived from leg swing) | ±30 (inv)  |
+| Ch | Joint | Servo | Rest | End | Limits | Status |
+|----|-------|-------|------|-----|--------|--------|
+| 0 | Head pan | MG996R | 0° | +45° (looks to one side; −45° the other) | −45 … +45 | calibrated |
+| 1 | Head tilt | MG996R | 0° | −45° (looks down) | −45 … 0 | calibrated |
+| 2 | Left shoulder (raises arm sideways) | MG996R | +20° | −90° (arm out to the side) | −90 … +20 | calibrated |
+| 3 | Left arm (bends forward) | MG996R | +30° (straight) | −20° (slightly bent) | −20 … +30 | calibrated |
+| 4 | Right shoulder (raises arm sideways) | MG996R | 0° | +90° (arm out to the side) | 0 … +90 | calibrated |
+| 5 | Right arm (bends forward) | MG996R | −30° (straight) | +20° (slightly bent) | −30 … +20 | calibrated |
+| 6 | Left hip roll | DS3218 | — | — | — | to calibrate |
+| 7 | Right hip roll | DS3218 | — | — | — | to calibrate |
+| 8 | Left hip pitch | DS3218 | — | — | — | to calibrate |
+| 9 | Right hip pitch | DS3218 | — | — | — | to calibrate |
+| 10 | Left knee | RDS3225 | — | — | — | to calibrate |
+| 11 | Right knee | RDS3225 | — | — | — | to calibrate |
+| 12 | Left ankle | RDS3225 | — | — | — | to calibrate |
+| 13 | Right ankle | RDS3225 | — | — | — | to calibrate |
+| 14 | Left wing | SG90 | — | — | — | to calibrate |
+| 15 | Right wing | SG90 | — | — | — | to calibrate |
 
-## Animation Angles (from Three.js radians → degrees)
+## PCA9685 #2 (I2C 0x41, solder jumper A0)
 
-### Walk
-- Leg swing: sin(phase) * 0.5 rad = **±28.6 deg**
-- Arm swing: sin(phase) * 0.35 rad = **±20.1 deg** (opposite to legs)
-- Head bob: sin(phase*2) * 0.02 rad = **±1.15 deg**
-- Wing flutter: sin(t * 0.012) * 0.22 rad = **±12.6 deg**
-- Walk speed: phase += dt * 8
+Reserved for the elbows (2× MG90S) and anything added later.
 
-### Wave
-- Right arm raise: -0.8 rad = **-45.8 deg** (peak, sin envelope 0→1→0)
-- Duration: 0.8s (physical) / 0.4s (Three.js)
-- All other joints neutral
+## How calibration works
 
-### Idle
-- All joints near zero with micro-movement
-- Wing flutter: sin(t * 0.006) * 0.1 rad = **±5.7 deg** (slow breathing)
+Each joint has a **rest** and an **end** position. Animations ask for an *amount*:
+0 = rest, 1 = end, 0.5 = halfway. Every command is clamped to the joint's limits,
+so no animation can push a joint past what was tested by hand.
 
-## Motor Wiring (TB6612FNG)
+To calibrate a new joint (legs, wings):
 
-### Board 1 — Differential Drive
-| Function    | ESP32 Pin | TB6612 Pin |
-|-------------|-----------|------------|
-| Standby     | GPIO 4    | STBY       |
-| Left Dir A  | GPIO 5    | AIN1       |
-| Left Dir B  | GPIO 6    | AIN2       |
-| Left PWM    | GPIO 7    | PWMA       |
-| Right Dir A | GPIO 15   | BIN1       |
-| Right Dir B | GPIO 16   | BIN2       |
-| Right PWM   | GPIO 17   | PWMB       |
+1. Set its `enabled` to `true` in the `joints[]` table with wide-open limits only while testing.
+2. Over serial, send `servo <ch> <deg>` and find rest and end positions.
+3. Write rest, end, min and max into `joints[]`, then upload again.
 
-### Board 2 — Center Motor
-| Function    | ESP32 Pin | TB6612 Pin |
-|-------------|-----------|------------|
-| Standby     | GPIO 18   | STBY       |
-| Center Dir A| GPIO 10   | AIN1       |
-| Center Dir B| GPIO 11   | AIN2       |
-| Center PWM  | GPIO 12   | PWMA       |
+Note: the shoulders are calibrated right at the servo's ±90° travel. If one buzzes or
+gets warm at the end position, move its horn 2 teeth (≈29°) away from that end and
+recalibrate it.
 
-### N20 Motors
-- 3× N20 30RPM 6V with metal gearbox
-- Wheels: micro N20 D-shaft rubber wheels
-- Caster balls for passive stability
-- Differential steering: left/right speed difference = turn
+## Serial commands (115200)
 
-## Ultrasonic Sensors (HC-SR04)
+`idle` `wave` `walk` `stop` `rest` `cal` `scan`
+`joint <name> <amount>` — e.g. `joint r_shoulder 0.5`
+`servo <ch> <deg>` — raw degrees, clamped to that joint's limits
 
-| Sensor       | Trig Pin | Echo Pin |
-|-------------|----------|----------|
-| Front       | GPIO 35  | GPIO 36  |
-| Left-Front  | GPIO 37  | GPIO 38  |
-| Right-Front | GPIO 39  | GPIO 40  |
-| Left        | GPIO 41  | GPIO 42  |
-| Right       | GPIO 47  | GPIO 48  |
+## OSC (UDP 9000, TouchDesigner)
 
-Obstacle threshold: 15cm
+- `/ee/anim <string>` — idle, wave, walk, stop
+- `/ee/joint <string name> <float amount>`
+- `/ee/servo <int ch> <float deg>`
 
-## I2C (PCA9685)
-- SDA: GPIO 8
-- SCL: GPIO 9
-- Address: 0x40
-- Clock: 400kHz
+## Other pins
+
+| Function | Pins |
+|----------|------|
+| I2C (both PCA9685) | SDA GPIO 8, SCL GPIO 9 |
+| HC-SR04 front (belly) | TRIG 38, ECHO 39 |
+| HC-SR04 left (head) | TRIG 40, ECHO 41 |
+| HC-SR04 right (head) | TRIG 42, ECHO 48 |
+
+HC-SR04 ECHO is 5 V: use a divider (e.g. 1 kΩ + 2 kΩ) to bring it to 3.3 V.
 
 ## Power
-- Servos + Motors: 6V 5A external supply → PCA9685 V+ and TB6612 VM
-- ESP32-S3: USB-C (5V) or 3.3V from regulator
-- 1000µF capacitor on servo power rail
-- **Important**: Common ground between ESP32, PCA9685, and TB6612
 
-## OSC Control (from TouchDesigner)
-- Port: 9000 (UDP)
-- `/ee/anim <string>` — idle, walk, wave, osc
-- `/ee/walk <0|1>` — toggle walking + motors
-- `/ee/servo <ch> <angle>` — direct joint control (degrees)
-- `/ee/motor <left> <right>` — direct motor control (-255 to 255)
-- `/ee/stop` — emergency stop all
-
-## Serial Commands (USB debug)
-`idle` `walk` `wave` `stop` `center` `scan` `servo <ch> <deg>` `motor <L> <R>`
-
-## Assembly Notes
-1. Build spine first (24cm 2020 extrusion vertical)
-2. Mount shoulder bar (12cm) with corner brackets at armPivotY
-3. Mount hip bar (7cm) with corner brackets at legPivotY
-4. Attach MG996R servos using servo mount brackets
-5. Wire PCA9685 → servos with Dupont cables
-6. Test each servo individually with `servo <ch> <angle>` command
-7. Wire TB6612FNG → N20 motors
-8. Mount wheels and casters on hidden base platform
-9. Attach SG90 ankle servos last
-10. Calibrate center positions — adjust `centerUs` values in firmware
+- Servos: 6 V, 20 A supply (or 2S LiPo + 6 V regulators) → V+ terminal of each PCA9685
+- 1000 µF capacitor on each PCA9685 V+
+- ESP32-S3: its own 5 V; common ground with the servo supply
