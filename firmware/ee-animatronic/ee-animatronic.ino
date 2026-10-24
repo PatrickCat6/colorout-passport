@@ -33,6 +33,7 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <Preferences.h>
 
 // ══════════════════════════════════════════════
 // ── CONFIG ──
@@ -95,17 +96,18 @@ Joint joints[NUM_JOINTS] = {
   { "l_arm",         0,  3, 1950,  1200,  1200,  1950,  true  },  // rest = recto, end = doblado
   { "r_shoulder",    0,  4, 1600,   600,   600,  1700,  true  },  // end = brazo de lado; rest 10° más adentro
   { "r_arm",         0,  5, 1033,  1811,  1033,  1811,  true  },  // rest = recto, end = doblado
-  // Legs and wings: placeholders until calibrated by hand (same method as above)
-  { "l_hip_roll",    0,  6, 1500,  1500,  1500,  1500,  false },
-  { "r_hip_roll",    0,  7, 1500,  1500,  1500,  1500,  false },
-  { "l_hip_pitch",   0,  8, 1500,  1500,  1500,  1500,  false },
-  { "r_hip_pitch",   0,  9, 1500,  1500,  1500,  1500,  false },
-  { "l_knee",        0, 10, 1500,  1500,  1500,  1500,  false },
-  { "r_knee",        0, 11, 1500,  1500,  1500,  1500,  false },
-  { "l_ankle",       0, 12, 1500,  1500,  1500,  1500,  false },
-  { "r_ankle",       0, 13, 1500,  1500,  1500,  1500,  false },
-  { "l_wing",        0, 14, 1500,  1500,  1500,  1500,  false },
-  { "r_wing",        0, 15, 1500,  1500,  1500,  1500,  false },
+  // Legs and wings: off until calibrated by hand over serial (enable / us / setrest / setend / save).
+  // Values saved with `save` live in flash and override this table at boot.
+  { "l_hip_roll",    0,  6, 1500,  1500,   600,  2400,  false },
+  { "r_hip_roll",    0,  7, 1500,  1500,   600,  2400,  false },
+  { "l_hip_pitch",   0,  8, 1500,  1500,   600,  2400,  false },
+  { "r_hip_pitch",   0,  9, 1500,  1500,   600,  2400,  false },
+  { "l_knee",        0, 10, 1500,  1500,   600,  2400,  false },
+  { "r_knee",        0, 11, 1500,  1500,   600,  2400,  false },
+  { "l_ankle",       0, 12, 1500,  1500,   600,  2400,  false },
+  { "r_ankle",       0, 13, 1500,  1500,   600,  2400,  false },
+  { "l_wing",        0, 14, 1500,  1500,   600,  2400,  false },
+  { "r_wing",        0, 15, 1500,  1500,   600,  2400,  false },
 };
 
 // ══════════════════════════════════════════════
@@ -150,6 +152,14 @@ bool pcaInit(uint8_t idx) {
     Wire.endTransmission();
   }
   return true;
+}
+
+void pcaOff(uint8_t idx, uint8_t ch) {            // no pulse: the servo goes limp
+  if (!pcaPresent[idx]) return;
+  Wire.beginTransmission(pcaAddr[idx]);
+  Wire.write(0x06 + ch * 4);
+  Wire.write(0); Wire.write(0); Wire.write(0); Wire.write(0x10);
+  Wire.endTransmission();
 }
 
 void pcaSetUs(uint8_t idx, uint8_t ch, float us) {
@@ -286,15 +296,63 @@ void animWalk(float t) {
 }
 
 // ══════════════════════════════════════════════
+// ── CALIBRATION IN FLASH ──
+// ══════════════════════════════════════════════
+Preferences prefs;
+struct CalRec { float rest, end, mn, mx; uint8_t en; };
+
+void loadCal() {
+  prefs.begin("eecal", true);
+  int n = 0;
+  for (uint8_t j = 0; j < NUM_JOINTS; j++) {
+    CalRec r;
+    if (prefs.getBytesLength(joints[j].name) == sizeof(r) && prefs.getBytes(joints[j].name, &r, sizeof(r)) == sizeof(r)) {
+      joints[j].restUs = r.rest; joints[j].endUs = r.end; joints[j].minUs = r.mn; joints[j].maxUs = r.mx; joints[j].enabled = r.en;
+      n++;
+    }
+  }
+  prefs.end();
+  if (n) Serial.printf("[CAL] %d joints loaded from flash\n", n);
+}
+
+void saveCal() {
+  prefs.begin("eecal", false);
+  for (uint8_t j = 0; j < NUM_JOINTS; j++) {
+    CalRec r = { joints[j].restUs, joints[j].endUs, joints[j].minUs, joints[j].maxUs, (uint8_t)joints[j].enabled };
+    prefs.putBytes(joints[j].name, &r, sizeof(r));
+  }
+  prefs.end();
+  Serial.println("[CAL] saved to flash");
+}
+
+void forgetCal() {
+  prefs.begin("eecal", false); prefs.clear(); prefs.end();
+  Serial.println("[CAL] flash cleared: the table in the code applies after a reset");
+}
+
+// joint by name or by PCA #1 channel number
+int jointArg(const char* t) {
+  if (t[0] >= '0' && t[0] <= '9') return jointForChannel(0, atoi(t));
+  return findJoint(t);
+}
+
+// ══════════════════════════════════════════════
 // ── SERIAL COMMANDS ──
 // ══════════════════════════════════════════════
 //   idle | wave | walk | stop       animations (stop = everything to rest)
 //   rest                            all joints to rest, manual mode
 //   joint <name> <amount>           e.g. joint r_shoulder 0.5   (0 = rest, 1 = end)
 //   servo <ch> <deg>                raw degrees on PCA #1 (0° = 1500 µs, 10 µs/°), clamped
-//   us <ch> <microseconds>          raw pulse on PCA #1, clamped
+//   us <name|ch> <microseconds>     raw pulse, clamped to the joint's limits
+//   step <name|ch> <+-microseconds> nudge a joint
 //   cal                             print the calibration table
 //   scan                            read the ultrasonic sensors
+// Calibrating a new joint (hang EE so the feet are off the table first):
+//   enable <name> [us]              start driving it (at [us], default its rest)
+//   off <name>                      stop driving it: no pulse, the servo goes limp
+//   setrest / setend / setmin / setmax <name>   store the joint's current pulse
+//   save                            write all calibration to flash (survives resets)
+//   forget                          clear flash, back to the table in the code
 
 void printCal() {
   Serial.println("joint         pca ch  rest   end   min   max  on    now   (µs; deg = (us-1500)/10)");
@@ -326,13 +384,44 @@ void parseSerial(String cmd) {
     setJoint(j, a);
     Serial.printf("%s → amount %.2f (%.0f µs)\n", name, a, joints[j].targetUs);
   }
-  else if (sscanf(cmd.c_str(), "us %d %f", &ch, &a) == 2) {
-    int j = jointForChannel(0, ch);
-    if (j < 0 || !joints[j].enabled) { Serial.println("channel not enabled"); return; }
+  else if (sscanf(cmd.c_str(), "us %23s %f", name, &a) == 2 || sscanf(cmd.c_str(), "step %23s %f", name, &a) == 2) {
+    int j = jointArg(name);
+    if (j < 0 || !joints[j].enabled) { Serial.println("joint not enabled (use: enable <name>)"); return; }
     currentAnim = ANIM_MANUAL;
-    setJointUs(j, a);
-    Serial.printf("ch%d (%s) → %.0f µs\n", ch, joints[j].name, joints[j].targetUs);
+    setJointUs(j, cmd.startsWith("step") ? joints[j].targetUs + a : a);
+    Serial.printf("%s → %.0f µs\n", joints[j].name, joints[j].targetUs);
   }
+  else if (sscanf(cmd.c_str(), "enable %23s", name) == 1) {
+    int j = jointArg(name);
+    if (j < 0) { Serial.println("unknown joint"); return; }
+    bool hasUs = sscanf(cmd.c_str(), "enable %23s %f", name, &a) == 2;
+    Joint& J = joints[j];
+    J.enabled = true; J.started = false;
+    J.targetUs = clampf(hasUs ? a : J.restUs, J.minUs, J.maxUs);
+    currentAnim = ANIM_MANUAL;
+    Serial.printf("%s enabled at %.0f µs (limits %.0f..%.0f)\n", J.name, J.targetUs, J.minUs, J.maxUs);
+  }
+  else if (sscanf(cmd.c_str(), "off %23s", name) == 1) {
+    int j = jointArg(name);
+    if (j < 0) { Serial.println("unknown joint"); return; }
+    joints[j].enabled = false; joints[j].started = false;
+    pcaOff(joints[j].pca, joints[j].ch);
+    Serial.printf("%s off (limp)\n", joints[j].name);
+  }
+  else if (cmd.startsWith("set") && sscanf(cmd.c_str() + 3, "%7s %15s", name, name + 8) == 2) {
+    const char* what = name; const char* nm = name + 8;
+    int j = jointArg(nm);
+    if (j < 0) { Serial.println("unknown joint"); return; }
+    Joint& J = joints[j]; float v = J.targetUs;
+    if (!strcmp(what, "rest")) J.restUs = v;
+    else if (!strcmp(what, "end")) J.endUs = v;
+    else if (!strcmp(what, "min")) J.minUs = v;
+    else if (!strcmp(what, "max")) J.maxUs = v;
+    else { Serial.println("use setrest / setend / setmin / setmax"); return; }
+    Serial.printf("%s %s = %.0f µs (type 'save' to keep it)\n", J.name, what, v);
+  }
+  else if (cmd == "save")   saveCal();
+  else if (cmd == "forget") forgetCal();
   else if (sscanf(cmd.c_str(), "servo %d %f", &ch, &a) == 2) {
     int j = jointForChannel(0, ch);
     if (j < 0 || !joints[j].enabled) { Serial.println("channel not enabled"); return; }
@@ -340,7 +429,7 @@ void parseSerial(String cmd) {
     setJointDeg(j, a);
     Serial.printf("ch%d (%s) → %.0f µs\n", ch, joints[j].name, joints[j].targetUs);
   }
-  else Serial.println("commands: idle wave walk stop rest cal scan | joint <name> <0..1> | servo <ch> <deg> | us <ch> <us>");
+  else Serial.println("commands: idle wave walk stop rest cal scan save forget | joint <name> <0..1> | us/step <name> <us> | enable/off <name> [us] | setrest/setend/setmin/setmax <name>");
 }
 
 // ══════════════════════════════════════════════
@@ -395,6 +484,8 @@ void setup() {
   pcaPresent[1] = pcaInit(1);
   Serial.printf("[PCA9685] #1 0x40: %s   #2 0x41: %s\n", pcaPresent[0] ? "ok" : "MISSING", pcaPresent[1] ? "ok" : "not found");
 
+  loadCal();
+
   // Rest pose, one joint at a time to avoid a current spike
   for (uint8_t j = 0; j < NUM_JOINTS; j++) {
     joints[j].targetUs = joints[j].restUs;
@@ -410,7 +501,7 @@ void setup() {
   else Serial.println("[WIFI] not connected — serial only");
 
   printCal();
-  Serial.println("ready: idle wave walk stop rest cal scan | joint <name> <0..1> | servo <ch> <deg> | us <ch> <us>");
+  Serial.println("ready — type 'help' for commands");
   lastUs = micros();
 }
 

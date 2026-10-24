@@ -38,11 +38,18 @@ Each joint has a **rest** and an **end** position. Animations ask for an *amount
 0 = rest, 1 = end, 0.5 = halfway. Every command is clamped to the joint's limits,
 so no animation can push a joint past what was tested by hand.
 
-To calibrate a new joint (legs, wings):
+To calibrate a new joint (legs, wings) — no code changes, everything over serial:
 
-1. Set its `enabled` to `true` in the `joints[]` table with wide-open limits only while testing.
-2. Over serial, send `servo <ch> <deg>` (or `us <ch> <µs>`) and find rest and end positions.
-3. Convert to µs (µs = 1500 + 10 × deg), write rest, end, min and max into `joints[]`, then upload again.
+1. Hang EE so the feet are off the table (the first pulse moves the servo at once).
+2. `enable l_knee 1500` starts driving the joint at 1500 µs (or any pulse you give).
+3. Move it with `us l_knee 1450` or `step l_knee -20` until it is in the rest pose.
+4. `setrest l_knee`, then move to the other end and `setend l_knee`.
+   Optional hard limits: move to each safe extreme and `setmin` / `setmax`.
+5. `save` writes everything to flash; it survives resets and new uploads.
+   `off l_knee` makes a joint limp again; `forget` clears flash.
+
+Leg order in the current build (top to bottom): hip pitch (DS3218, ch 8/9) → hip roll
+(DS3218, ch 6/7) → knee (RDS3225, ch 10/11) → ankle (RDS3225, ch 12/13).
 
 Note: both shoulders end right at 600 / 2400 µs, the end of the servo's travel. If one buzzes or
 gets warm at the end position, move its horn 2 teeth (≈29°) away from that end and
@@ -50,10 +57,11 @@ recalibrate it.
 
 ## Serial commands (115200)
 
-`idle` `wave` `walk` `stop` `rest` `cal` `scan`
+`idle` `wave` `walk` `stop` `rest` `cal` `scan` `save` `forget`
 `joint <name> <amount>` — e.g. `joint r_shoulder 0.5`
 `servo <ch> <deg>` — raw degrees on the common scale, clamped to that joint's limits
-`us <ch> <µs>` — raw pulse, clamped
+`us <name|ch> <µs>` — raw pulse, clamped · `step <name> <±µs>` — nudge
+`enable <name> [µs]` · `off <name>` · `setrest|setend|setmin|setmax <name>`
 
 ## OSC (UDP 9000, TouchDesigner)
 
