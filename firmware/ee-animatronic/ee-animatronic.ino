@@ -290,14 +290,60 @@ void animWave(float t) {
 }
 
 // Arm swing while walking (legs added once calibrated)
+// ── LEGS ──
+// Leg joints move by degrees away from their calibrated rest pose (the standing pose).
+// Positive meanings: hip pitch + = leg forward, hip roll + = foot outward,
+// knee + = bends more, ankle + = toe up. SIGN = which way +µs goes on each servo
+// (measured 2026-10-24 with `step <joint> 100`).
+#define LEG_US_PER_DEG 7.4f      // 270° servos: 2000 µs / 270°. If the RDS3225 are 180°, motion is 2/3 of what's asked (safe side).
+const int8_t SIGN_HP_L = +1, SIGN_HP_R = -1;
+const int8_t SIGN_HR_L = +1, SIGN_HR_R = -1;
+const int8_t SIGN_K_L  = +1, SIGN_K_R  = +1;
+const int8_t SIGN_A_L  = +1, SIGN_A_R  = -1;
+
+void legDeg(uint8_t j, int8_t sign, float deg) {
+  if (!joints[j].enabled) return;
+  setJointUs(j, joints[j].restUs + sign * deg * LEG_US_PER_DEG);
+}
+
+// One leg: hip forward h, knee bend b. The ankle keeps the foot flat: ankle = b - h.
+void legPose(bool left, float hipFwd, float knee) {
+  float ankle = knee - hipFwd;
+  if (left) { legDeg(L_HIP_PITCH, SIGN_HP_L, hipFwd); legDeg(L_KNEE, SIGN_K_L, knee); legDeg(L_ANKLE, SIGN_A_L, ankle); }
+  else      { legDeg(R_HIP_PITCH, SIGN_HP_R, hipFwd); legDeg(R_KNEE, SIGN_K_R, knee); legDeg(R_ANKLE, SIGN_A_R, ankle); }
+}
+
+// Pelvis lean (deg). + = right side down: weight onto the right foot, the left foot lifts.
+// Both legs stay vertical, so the feet stay flat: left foot turns inward, right outward by the same angle.
+void pelvisLean(float a) {
+  legDeg(L_HIP_ROLL, SIGN_HR_L, -a);
+  legDeg(R_HIP_ROLL, SIGN_HR_R, +a);
+}
+
+// Gait settings, tunable over serial: gait sway|step|lift|hz <value>
+float GAIT_SWAY = 12.0f;   // pelvis lean, deg
+float GAIT_STEP = 8.0f;    // hip swing forward/back, deg
+float GAIT_LIFT = 20.0f;   // knee bend of the swinging leg, deg
+float GAIT_HZ   = 0.35f;   // steps per second (one full cycle = left + right step)
+float leanNow = 0;
+
 void animWalk(float t) {
-  float s = sinf(t * 2.0f * PI * 0.8f);
-  setJoint(L_ARM, 0.5f + 0.5f * s);
-  setJoint(R_ARM, 0.5f - 0.5f * s);
-  setJoint(L_SHOULDER, 0.08f);
-  setJoint(R_SHOULDER, 0.08f);
-  setJoint(HEAD_PAN, 0.1f * s);
-  setJoint(HEAD_TILT, 0.1f);
+  float ph = t * 2.0f * PI * GAIT_HZ;
+  float S = sinf(ph), C = cosf(ph);
+  float ramp = t < 2.0f ? t / 2.0f : 1.0f;             // ease in over 2 s
+  float lean = GAIT_SWAY * S * ramp;                    // + = weight on the right foot
+  float liftL = S > 0 ? S : 0, liftR = S < 0 ? -S : 0;  // the unloaded leg bends
+  float kL = GAIT_LIFT * liftL * ramp, kR = GAIT_LIFT * liftR * ramp;
+  pelvisLean(lean);
+  legPose(true,  -GAIT_STEP * C * ramp + kL / 2, kL);
+  legPose(false,  GAIT_STEP * C * ramp + kR / 2, kR);
+  // arms swing against the legs, head follows a little
+  setJoint(L_ARM, 0.3f + 0.3f * C);
+  setJoint(R_ARM, 0.3f - 0.3f * C);
+  setJoint(L_SHOULDER, 0.06f);
+  setJoint(R_SHOULDER, 0.06f);
+  setJoint(HEAD_PAN, 0.08f * S);
+  setJoint(HEAD_TILT, 0.08f);
 }
 
 // ══════════════════════════════════════════════
@@ -350,6 +396,8 @@ int jointArg(const char* t) {
 //   servo <ch> <deg>                raw degrees on PCA #1 (0° = 1500 µs, 10 µs/°), clamped
 //   us <name|ch> <microseconds>     raw pulse, clamped to the joint's limits
 //   step <name|ch> <+-microseconds> nudge a joint
+//   lean <deg>                      pelvis lean to test balance (+ = weight on right foot)
+//   gait sway|step|lift|hz <value>  tune the walk (defaults 12°, 8°, 20°, 0.35 Hz)
 //   cal                             print the calibration table
 //   scan                            read the ultrasonic sensors
 // Calibrating a new joint (hang EE so the feet are off the table first):
@@ -371,9 +419,20 @@ void printCal() {
 void parseSerial(String cmd) {
   cmd.trim();
   char name[24]; float a; int ch;
-  if (cmd == "idle")      { currentAnim = ANIM_IDLE; animT = 0; }
+  if (cmd == "idle")      { currentAnim = ANIM_IDLE; animT = 0; for (uint8_t j = L_HIP_ROLL; j <= R_ANKLE; j++) setJoint(j, 0); }
   else if (cmd == "wave") { currentAnim = ANIM_WAVE; animT = 0; }
   else if (cmd == "walk") { currentAnim = ANIM_WALK; animT = 0; }
+  else if (sscanf(cmd.c_str(), "lean %f", &a) == 1) {   // test weight shift: lean 5, lean -5, lean 0
+    currentAnim = ANIM_MANUAL; leanNow = clampf(a, -20, 20); pelvisLean(leanNow);
+    Serial.printf("pelvis lean %.1f° (%s)\n", leanNow, leanNow > 0 ? "weight on right foot" : leanNow < 0 ? "weight on left foot" : "centre");
+  }
+  else if (sscanf(cmd.c_str(), "gait %7s %f", name, &a) == 2) {
+    if (!strcmp(name, "sway")) GAIT_SWAY = clampf(a, 0, 20);
+    else if (!strcmp(name, "step")) GAIT_STEP = clampf(a, 0, 20);
+    else if (!strcmp(name, "lift")) GAIT_LIFT = clampf(a, 0, 40);
+    else if (!strcmp(name, "hz")) GAIT_HZ = clampf(a, 0.1f, 1.0f);
+    Serial.printf("gait: sway %.1f° step %.1f° lift %.1f° %.2f Hz\n", GAIT_SWAY, GAIT_STEP, GAIT_LIFT, GAIT_HZ);
+  }
   else if (cmd == "stop" || cmd == "rest") { currentAnim = ANIM_MANUAL; allToRest(); }
   else if (cmd == "cal")  printCal();
   else if (cmd == "scan") {

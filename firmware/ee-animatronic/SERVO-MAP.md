@@ -51,6 +51,17 @@ To calibrate a new joint (legs, wings) — no code changes, everything over seri
 Leg order in the current build (top to bottom): hip pitch (DS3218, ch 8/9) → hip roll
 (DS3218, ch 6/7) → knee (RDS3225, ch 10/11) → ankle (RDS3225, ch 12/13).
 
+Leg directions (what +µs does, measured 2026-10-24): left hip pitch forward / right backward ·
+left hip roll foot out / right foot in · both knees bend · left ankle toe up / right toe down.
+The firmware turns these into one meaning per joint (hip + = forward, roll + = foot out,
+knee + = bend, ankle + = toe up) with a sign per servo.
+
+## Walking
+
+`lean <deg>` tilts the pelvis to shift weight (+ = onto the right foot) — test balance with it first.
+`walk` = sway gait: the pelvis leans over one foot, the other leg bends its knee and swings.
+`gait sway|step|lift|hz <value>` tunes it (defaults 12°, 8°, 20°, 0.35 Hz). `stop` or `idle` returns to the standing pose.
+
 Note: both shoulders end right at 600 / 2400 µs, the end of the servo's travel. If one buzzes or
 gets warm at the end position, move its horn 2 teeth (≈29°) away from that end and
 recalibrate it.
