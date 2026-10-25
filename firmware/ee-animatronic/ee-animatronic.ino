@@ -162,8 +162,12 @@ void pcaOff(uint8_t idx, uint8_t ch) {            // no pulse: the servo goes li
   Wire.endTransmission();
 }
 
+#define PULSE_MIN 500.0f   // no servo ever gets a pulse outside 500..2500 µs
+#define PULSE_MAX 2500.0f
+
 void pcaSetUs(uint8_t idx, uint8_t ch, float us) {
-  if (!pcaPresent[idx]) return;
+  if (!pcaPresent[idx] || us < PULSE_MIN - 1) return;   // never send a bad pulse
+  if (us > PULSE_MAX) us = PULSE_MAX;
   uint16_t ticks = (uint16_t)(us * 4096.0f / 20000.0f + 0.5f);
   Wire.beginTransmission(pcaAddr[idx]);
   Wire.write(0x06 + ch * 4);
@@ -202,6 +206,7 @@ void updateJoints(float dt) {
   for (uint8_t j = 0; j < NUM_JOINTS; j++) {
     Joint& J = joints[j];
     if (!J.enabled) continue;
+    if (J.targetUs < PULSE_MIN) continue;   // no valid target yet
     if (!J.started) {                 // first pulse: go straight to target (position unknown)
       J.currentUs = J.targetUs;
       J.started = true;
@@ -412,7 +417,7 @@ void parseSerial(String cmd) {
     const char* what = name; const char* nm = name + 8;
     int j = jointArg(nm);
     if (j < 0) { Serial.println("unknown joint"); return; }
-    Joint& J = joints[j]; float v = J.targetUs;
+    Joint& J = joints[j]; float v = clampf(J.targetUs, PULSE_MIN, PULSE_MAX);
     if (!strcmp(what, "rest")) J.restUs = v;
     else if (!strcmp(what, "end")) J.endUs = v;
     else if (!strcmp(what, "min")) J.minUs = v;
@@ -487,9 +492,18 @@ void setup() {
   loadCal();
 
   // Rest pose, one joint at a time to avoid a current spike
-  for (uint8_t j = 0; j < NUM_JOINTS; j++) {
-    joints[j].targetUs = joints[j].restUs;
-    if (joints[j].enabled) { updateJoints(0); delay(150); }
+  for (uint8_t j = 0; j < NUM_JOINTS; j++) {        // every target set before any pulse goes out
+    Joint& J = joints[j];
+    J.minUs = clampf(J.minUs, PULSE_MIN, PULSE_MAX); J.maxUs = clampf(J.maxUs, PULSE_MIN, PULSE_MAX);
+    J.targetUs = J.currentUs = clampf(J.restUs, J.minUs, J.maxUs);
+    J.started = false;
+  }
+  for (uint8_t j = 0; j < NUM_JOINTS; j++) {        // then each joint to rest, one at a time
+    Joint& J = joints[j];
+    if (!J.enabled) continue;
+    pcaSetUs(J.pca, J.ch, J.targetUs);
+    J.started = true;
+    delay(150);
   }
 
   sensorsInit();
