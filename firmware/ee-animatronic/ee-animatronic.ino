@@ -96,16 +96,16 @@ Joint joints[NUM_JOINTS] = {
   { "l_arm",         0,  3, 1950,  1200,  1200,  1950,  true  },  // rest = recto, end = doblado
   { "r_shoulder",    0,  4, 1600,   600,   600,  1700,  true  },  // end = brazo de lado; rest 10° más adentro
   { "r_arm",         0,  5, 1033,  1811,  1033,  1811,  true  },  // rest = recto, end = doblado
-  // Legs: rest measured by hand on 2026-10-24 (backup; values saved with `save` in flash override this table).
+  // Legs: rest measured by hand on 2026-10-25 (backup; values saved with `save` in flash override this table).
   // Wings: off until calibrated over serial (enable / us / setrest / setend / save).
-  { "l_hip_roll",    0,  6, 1320,  1320,   600,  2400,  true  },
-  { "r_hip_roll",    0,  7, 1280,  1280,   600,  2400,  true  },
+  { "l_hip_roll",    0,  6, 1320,  1320,   500,  2400,  true  },
+  { "r_hip_roll",    0,  7, 1280,  1280,   600,  2500,  true  },
   { "l_hip_pitch",   0,  8, 1100,  1100,   600,  2400,  true  },
-  { "r_hip_pitch",   0,  9, 1620,  1620,   600,  2400,  true  },
-  { "l_knee",        0, 10, 1850,  1850,   600,  2400,  true  },
-  { "r_knee",        0, 11, 1950,  1950,   600,  2400,  true  },
-  { "l_ankle",       0, 12, 1300,  1300,   600,  2400,  true  },
-  { "r_ankle",       0, 13, 1240,  1240,   600,  2400,  true  },
+  { "r_hip_pitch",   0,  9, 1720,  1720,   600,  2400,  true  },
+  { "l_knee",        0, 10, 1550,  1550,   600,  2400,  true  },
+  { "r_knee",        0, 11, 1700,  1700,   600,  2400,  true  },
+  { "l_ankle",       0, 12, 1000,  1000,   600,  2400,  true  },
+  { "r_ankle",       0, 13, 1540,  1540,   600,  2400,  true  },
   { "l_wing",        0, 14, 1500,  1500,   600,  2400,  false },
   { "r_wing",        0, 15, 1500,  1500,   600,  2400,  false },
 };
