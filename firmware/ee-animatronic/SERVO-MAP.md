@@ -68,11 +68,18 @@ recalibrate it.
 
 ## Serial commands (115200)
 
-`idle` `wave` `walk` `stop` `rest` `cal` `scan` `save` `forget`
+`idle` `wave` `walk` `stop` `rest` `cal` `scan` `save` `forget` `imu [on|off|zero|clear]` `lean <deg>` `gait sway|step|lift|hz <v>`
 `joint <name> <amount>` — e.g. `joint r_shoulder 0.5`
 `servo <ch> <deg>` — raw degrees on the common scale, clamped to that joint's limits
 `us <name|ch> <µs>` — raw pulse, clamped · `step <name> <±µs>` — nudge
 `enable <name> [µs]` · `off <name>` · `setrest|setend|setmin|setmax <name>`
+
+## IMU (tilt)
+
+GY-521 on the pelvis, flat, X arrow to EE's front. EE must stay still for half a second at boot (gyro bias).
+`imu` prints the tilt once · `imu on` / `imu off` streams it 5×/s · `imu zero` takes the current pose as level (saved in flash) · `imu clear` removes that offset.
+pitch + = leans forward, roll + = leans to EE's right. If a direction reads reversed, flip `IMU_PITCH_SIGN` / `IMU_ROLL_SIGN`.
+`scan` now also lists the I2C devices: expect 0x40 (PCA) and 0x68 (IMU).
 
 ## OSC (UDP 9000, TouchDesigner)
 
@@ -87,7 +94,8 @@ recalibrate it.
 | I2C (both PCA9685) | SDA GPIO 8, SCL GPIO 9 |
 | HC-SR04 front (belly) | TRIG 38, ECHO 39 |
 | HC-SR04 left (head) | TRIG 40, ECHO 41 |
-| HC-SR04 right (head) | TRIG 42, ECHO 48 |
+| HC-SR04 right (head) | TRIG 42, ECHO 47 (not 48: the board's RGB LED) |
+| IMU GY-521 / MPU6050 (0x68) | same I2C bus: from the PCA9685's spare header (GND, SCL, SDA, VCC); never V+ |
 
 HC-SR04 ECHO is 5 V: use a divider (e.g. 1 kΩ + 2 kΩ) to bring it to 3.3 V.
 

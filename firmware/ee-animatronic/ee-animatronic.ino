@@ -119,7 +119,7 @@ struct UltrasonicSensor { uint8_t trigPin, echoPin; float distanceCm; };
 UltrasonicSensor sensors[NUM_SENSORS] = {
   { 38, 39, 999.0 },   // front (belly)
   { 40, 41, 999.0 },   // left (head side)
-  { 42, 48, 999.0 },   // right (head side)
+  { 42, 47, 999.0 },   // right (head side) — not 48: the board's RGB LED is there
 };
 
 // ══════════════════════════════════════════════
@@ -251,6 +251,111 @@ void sensorsUpdate() {                       // one sensor every 40 ms
   lastSensorMs = millis();
   sensors[currentSensor].distanceCm = readUltrasonic(sensors[currentSensor].trigPin, sensors[currentSensor].echoPin);
   currentSensor = (currentSensor + 1) % NUM_SENSORS;
+}
+
+// ══════════════════════════════════════════════
+// ── IMU (GY-521 / MPU6050 on the same I2C bus, 0x68) ──
+// ══════════════════════════════════════════════
+// Mounted on the pelvis, flat, X arrow pointing to EE's front.
+// pitch + = EE leans forward · roll + = EE leans to its right.
+// If a direction comes out reversed, flip its sign here.
+#define IMU_ADDR 0x68
+const int8_t IMU_PITCH_SIGN = +1;
+const int8_t IMU_ROLL_SIGN  = +1;
+
+bool imuOk = false, imuStream = false;
+float imuPitch = 0, imuRoll = 0;          // filtered, degrees, after zero offset
+float imuPitchRaw = 0, imuRollRaw = 0;    // filtered, before zero offset
+float imuZeroPitch = 0, imuZeroRoll = 0;  // set with 'imu zero', saved in flash
+float gyroBiasX = 0, gyroBiasY = 0;
+unsigned long imuLastUs = 0, imuLastPrintMs = 0;
+Preferences imuPrefs;
+void imuPrint();
+
+void imuWrite(uint8_t reg, uint8_t val) {
+  Wire.beginTransmission(IMU_ADDR); Wire.write(reg); Wire.write(val); Wire.endTransmission();
+}
+
+bool imuRead(float& ax, float& ay, float& az, float& gx, float& gy) {
+  Wire.beginTransmission(IMU_ADDR); Wire.write(0x3B);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom((uint8_t)IMU_ADDR, (uint8_t)14) != 14) return false;
+  int16_t v[7];
+  for (int i = 0; i < 7; i++) v[i] = (int16_t)((Wire.read() << 8) | Wire.read());
+  ax = v[0] / 16384.0f; ay = v[1] / 16384.0f; az = v[2] / 16384.0f;   // ±2 g
+  gx = v[4] / 65.5f;    gy = v[5] / 65.5f;                            // ±500 °/s
+  return true;
+}
+
+void accelAngles(float ax, float ay, float az, float& pitch, float& roll) {
+  pitch = IMU_PITCH_SIGN * atan2f(-ax, sqrtf(ay * ay + az * az)) * 57.2958f;
+  roll  = IMU_ROLL_SIGN  * atan2f(ay, az) * 57.2958f;
+}
+
+void imuInit() {
+  Wire.beginTransmission(IMU_ADDR);
+  imuOk = Wire.endTransmission() == 0;
+  if (!imuOk) { Serial.println("[IMU] not found at 0x68 — check SDA/SCL/VCC/GND"); return; }
+  imuWrite(0x6B, 0x00);   // wake up
+  delay(50);
+  imuWrite(0x1A, 0x03);   // low-pass ~44 Hz
+  imuWrite(0x1B, 0x08);   // gyro ±500 °/s
+  imuWrite(0x1C, 0x00);   // accel ±2 g
+  delay(50);
+  // gyro bias: EE must be still for this half second
+  float ax, ay, az, gx, gy, sx = 0, sy = 0; int n = 0;
+  for (int i = 0; i < 200; i++) { if (imuRead(ax, ay, az, gx, gy)) { sx += gx; sy += gy; n++; } delay(2); }
+  if (n) { gyroBiasX = sx / n; gyroBiasY = sy / n; }
+  if (imuRead(ax, ay, az, gx, gy)) accelAngles(ax, ay, az, imuPitchRaw, imuRollRaw);
+  imuPrefs.begin("eeimu", true);
+  imuZeroPitch = imuPrefs.getFloat("zp", 0); imuZeroRoll = imuPrefs.getFloat("zr", 0);
+  imuPrefs.end();
+  imuLastUs = micros();
+  Serial.printf("[IMU] ok — zero offset pitch %.1f° roll %.1f°\n", imuZeroPitch, imuZeroRoll);
+}
+
+void imuUpdate() {                           // complementary filter: gyro for speed, accel for drift
+  if (!imuOk) return;
+  float ax, ay, az, gx, gy;
+  if (!imuRead(ax, ay, az, gx, gy)) return;
+  unsigned long now = micros();
+  float dt = (now - imuLastUs) / 1e6f; imuLastUs = now;
+  if (dt > 0.1f) dt = 0.1f;
+  float ap, ar; accelAngles(ax, ay, az, ap, ar);
+  // gyro Y turns the top toward the front (pitch), gyro X lowers the right side (roll)
+  imuPitchRaw = 0.98f * (imuPitchRaw + IMU_PITCH_SIGN * (gy - gyroBiasY) * dt) + 0.02f * ap;
+  imuRollRaw  = 0.98f * (imuRollRaw  + IMU_ROLL_SIGN  * (gx - gyroBiasX) * dt) + 0.02f * ar;
+  imuPitch = imuPitchRaw - imuZeroPitch;
+  imuRoll  = imuRollRaw  - imuZeroRoll;
+  if (imuStream && millis() - imuLastPrintMs >= 200) { imuLastPrintMs = millis(); imuPrint(); }
+}
+
+void imuPrint() {
+  if (!imuOk) { Serial.println("[IMU] not found"); return; }
+  Serial.printf("[IMU] pitch %+5.1f° (%s)   roll %+5.1f° (%s)\n",
+    imuPitch, fabsf(imuPitch) < 1 ? "level" : imuPitch > 0 ? "leans forward" : "leans back",
+    imuRoll,  fabsf(imuRoll)  < 1 ? "level" : imuRoll  > 0 ? "leans right"   : "leans left");
+}
+
+void imuSetZero(bool clear) {
+  imuZeroPitch = clear ? 0 : imuPitchRaw; imuZeroRoll = clear ? 0 : imuRollRaw;
+  imuPrefs.begin("eeimu", false);
+  imuPrefs.putFloat("zp", imuZeroPitch); imuPrefs.putFloat("zr", imuZeroRoll);
+  imuPrefs.end();
+  Serial.printf("[IMU] zero %s (pitch %.1f° roll %.1f°)\n", clear ? "cleared" : "set to current pose", imuZeroPitch, imuZeroRoll);
+}
+
+void i2cScan() {
+  Serial.printf("  I2C:");
+  int n = 0;
+  for (uint8_t a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) {
+      Serial.printf(" 0x%02X%s", a, a == 0x40 ? " (PCA #1)" : a == 0x41 ? " (PCA #2)" : a == IMU_ADDR ? " (IMU)" : a == 0x70 ? " (PCA all-call)" : "");
+      n++;
+    }
+  }
+  Serial.println(n ? "" : " nothing found");
 }
 
 // ══════════════════════════════════════════════
@@ -435,7 +540,13 @@ void parseSerial(String cmd) {
   }
   else if (cmd == "stop" || cmd == "rest") { currentAnim = ANIM_MANUAL; allToRest(); }
   else if (cmd == "cal")  printCal();
+  else if (cmd == "imu")      imuPrint();
+  else if (cmd == "imu on")   { imuStream = true;  Serial.println("[IMU] streaming 5×/s — 'imu off' to stop"); }
+  else if (cmd == "imu off")  { imuStream = false; Serial.println("[IMU] stream off"); }
+  else if (cmd == "imu zero") imuSetZero(false);
+  else if (cmd == "imu clear") imuSetZero(true);
   else if (cmd == "scan") {
+    i2cScan();
     for (int i = 0; i < NUM_SENSORS; i++) {
       sensors[i].distanceCm = readUltrasonic(sensors[i].trigPin, sensors[i].echoPin);
       Serial.printf("  sensor %d: %.1f cm\n", i, sensors[i].distanceCm);
@@ -493,7 +604,7 @@ void parseSerial(String cmd) {
     setJointDeg(j, a);
     Serial.printf("ch%d (%s) → %.0f µs\n", ch, joints[j].name, joints[j].targetUs);
   }
-  else Serial.println("commands: idle wave walk stop rest cal scan save forget | joint <name> <0..1> | us/step <name> <us> | enable/off <name> [us] | setrest/setend/setmin/setmax <name>");
+  else Serial.println("commands: idle wave walk stop rest cal scan save forget | imu [on|off|zero|clear] | lean <deg> | gait sway|step|lift|hz <v> | joint <name> <0..1> | us/step <name> <us> | enable/off <name> [us] | setrest/setend/setmin/setmax <name>");
 }
 
 // ══════════════════════════════════════════════
@@ -566,6 +677,8 @@ void setup() {
   }
 
   sensorsInit();
+  delay(300);       // let the frame settle before the IMU measures its gyro bias
+  imuInit();
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   for (int i = 0; i < 20 && WiFi.status() != WL_CONNECTED; i++) delay(250);
@@ -592,6 +705,7 @@ void loop() {
   }
 
   sensorsUpdate();
+  imuUpdate();
 
   switch (currentAnim) {
     case ANIM_IDLE:   animIdle(animT); break;
