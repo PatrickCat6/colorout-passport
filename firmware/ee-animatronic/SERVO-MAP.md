@@ -76,7 +76,7 @@ recalibrate it.
 
 ## IMU (tilt)
 
-GY-521 on the pelvis, flat, X arrow to EE's front. EE must stay still for half a second at boot (gyro bias).
+GY-521 upright on the front of the pelvis: X arrow up, Y arrow to EE's left (axes remapped in `imuRead`). EE must stay still for half a second at boot (gyro bias).
 `imu` prints the tilt once · `imu on` / `imu off` streams it 5×/s · `imu zero` takes the current pose as level (saved in flash) · `imu clear` removes that offset.
 pitch + = leans forward, roll + = leans to EE's right. If a direction reads reversed, flip `IMU_PITCH_SIGN` / `IMU_ROLL_SIGN`.
 `scan` now also lists the I2C devices: expect 0x40 (PCA) and 0x68 (IMU).
