@@ -256,8 +256,8 @@ void sensorsUpdate() {                       // one sensor every 40 ms
 // ══════════════════════════════════════════════
 // ── IMU (GY-521 / MPU6050 on the same I2C bus, 0x68) ──
 // ══════════════════════════════════════════════
-// Mounted upright on the front of the pelvis: board X arrow points UP, Y arrow to EE's LEFT,
-// so the board's Z axis points to EE's back. imuRead() turns that into EE's own axes
+// Mounted upright on the front of the pelvis, chip facing forward: board X arrow points UP,
+// Z (out of the chip face) points to EE's FRONT, so Y points to EE's RIGHT. imuRead() turns that into EE's own axes
 // (forward, left, up). For a flat mount (X forward, Y left) use ax=X, ay=Y, az=Z, gx=GX, gy=GY.
 // pitch + = EE leans forward · roll + = EE leans to its right.
 // If a direction comes out reversed, flip its sign here.
@@ -286,9 +286,9 @@ bool imuRead(float& ax, float& ay, float& az, float& gx, float& gy) {
   for (int i = 0; i < 7; i++) v[i] = (int16_t)((Wire.read() << 8) | Wire.read());
   float bX = v[0] / 16384.0f, bY = v[1] / 16384.0f, bZ = v[2] / 16384.0f;   // board axes, ±2 g
   float gX = v[4] / 65.5f,    gY = v[5] / 65.5f,    gZ = v[6] / 65.5f;      // board axes, ±500 °/s
-  // board → EE: forward = −Z, left = +Y, up = +X
-  ax = -bZ; ay = bY; az = bX;
-  gx = -gZ; gy = gY;   // gx = turn about EE's forward axis, gy = about its left axis
+  // board → EE: forward = +Z, left = −Y, up = +X
+  ax = bZ; ay = -bY; az = bX;
+  gx = gZ; gy = -gY;   // gx = turn about EE's forward axis, gy = about its left axis
   (void)gX;
   return true;
 }
