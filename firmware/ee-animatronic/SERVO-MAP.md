@@ -58,7 +58,8 @@ knee + = bend, ankle + = toe up) with a sign per servo.
 
 ## Walking
 
-`lean <deg>` tilts the pelvis to shift weight (+ = onto the right foot) — test balance with it first.
+`lean <deg>` tilts the pelvis to shift weight (+ = onto the right foot). On its own both feet stay down and roll onto their edges.
+`shift <lean> <knee>` holds one step: lean plus the other knee bending (feet kept flat in pitch), e.g. `shift 6 15` = stand on the right foot, left foot up. `shift 0 0` or `rest` to return.
 `walk` = sway gait: the pelvis leans over one foot, the other leg bends its knee and swings.
 `gait sway|step|lift|hz <value>` tunes it (defaults 12°, 8°, 20°, 0.35 Hz). `stop` or `idle` returns to the standing pose.
 

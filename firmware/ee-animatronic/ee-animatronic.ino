@@ -529,13 +529,20 @@ void printCal() {
 
 void parseSerial(String cmd) {
   cmd.trim();
-  char name[24]; float a; int ch;
+  char name[24]; float a, b; int ch;
   if (cmd == "idle")      { currentAnim = ANIM_IDLE; animT = 0; for (uint8_t j = L_HIP_ROLL; j <= R_ANKLE; j++) setJoint(j, 0); }
   else if (cmd == "wave") { currentAnim = ANIM_WAVE; animT = 0; }
   else if (cmd == "walk") { currentAnim = ANIM_WALK; animT = 0; }
   else if (sscanf(cmd.c_str(), "lean %f", &a) == 1) {   // test weight shift: lean 5, lean -5, lean 0
     currentAnim = ANIM_MANUAL; leanNow = clampf(a, -20, 20); pelvisLean(leanNow);
     Serial.printf("pelvis lean %.1f° (%s)\n", leanNow, leanNow > 0 ? "weight on right foot" : leanNow < 0 ? "weight on left foot" : "centre");
+  }
+  else if (sscanf(cmd.c_str(), "shift %f %f", &a, &b) == 2) {   // hold one step: shift 8 15 = lean onto right foot, left knee bends 15°
+    currentAnim = ANIM_MANUAL; leanNow = clampf(a, -20, 20); float k = clampf(b, 0, 40);
+    pelvisLean(leanNow);
+    legPose(true,  leanNow > 0 ? k / 2 : 0, leanNow > 0 ? k : 0);
+    legPose(false, leanNow < 0 ? k / 2 : 0, leanNow < 0 ? k : 0);
+    Serial.printf("shift: lean %.1f°, %s knee bends %.1f° (stance foot: %s)\n", leanNow, leanNow > 0 ? "left" : leanNow < 0 ? "right" : "no", k, leanNow > 0 ? "right" : leanNow < 0 ? "left" : "both");
   }
   else if (sscanf(cmd.c_str(), "gait %7s %f", name, &a) == 2) {
     if (!strcmp(name, "sway")) GAIT_SWAY = clampf(a, 0, 20);
@@ -610,7 +617,7 @@ void parseSerial(String cmd) {
     setJointDeg(j, a);
     Serial.printf("ch%d (%s) → %.0f µs\n", ch, joints[j].name, joints[j].targetUs);
   }
-  else Serial.println("commands: idle wave walk stop rest cal scan save forget | imu [on|off|zero|clear] | lean <deg> | gait sway|step|lift|hz <v> | joint <name> <0..1> | us/step <name> <us> | enable/off <name> [us] | setrest/setend/setmin/setmax <name>");
+  else Serial.println("commands: idle wave walk stop rest cal scan save forget | imu [on|off|zero|clear] | lean <deg> | shift <lean> <knee> | gait sway|step|lift|hz <v> | joint <name> <0..1> | us/step <name> <us> | enable/off <name> [us] | setrest/setend/setmin/setmax <name>");
 }
 
 // ══════════════════════════════════════════════
