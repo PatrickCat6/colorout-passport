@@ -73,7 +73,7 @@ recalibrate it.
 `joint <name> <amount>` — e.g. `joint r_shoulder 0.5`
 `servo <ch> <deg>` — raw degrees on the common scale, clamped to that joint's limits
 `us <name|ch> <µs>` — raw pulse, clamped · `step <name> <±µs>` — nudge
-`enable <name> [µs]` · `off <name>` · `setrest|setend|setmin|setmax <name>`
+`enable <name> [µs]` · `off <name>` · `setrest|setend|setmin|setmax <name>` · `limit <name> <min> <max>` — open or close a joint's safe range by number (e.g. to move a rest past an old limit)
 
 ## IMU (tilt)
 

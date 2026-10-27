@@ -596,6 +596,14 @@ void parseSerial(String cmd) {
     pcaOff(joints[j].pca, joints[j].ch);
     Serial.printf("%s off (limp)\n", joints[j].name);
   }
+  else if (sscanf(cmd.c_str(), "limit %23s %f %f", name, &a, &b) == 3) {   // widen or narrow a joint's safe range: limit l_arm 900 2200
+    int j = jointArg(name);
+    if (j < 0) { Serial.println("unknown joint"); return; }
+    Joint& J = joints[j];
+    J.minUs = clampf(fminf(a, b), PULSE_MIN, PULSE_MAX); J.maxUs = clampf(fmaxf(a, b), PULSE_MIN, PULSE_MAX);
+    J.targetUs = clampf(J.targetUs, J.minUs, J.maxUs);
+    Serial.printf("%s limits %.0f..%.0f µs (type 'save' to keep them)\n", J.name, J.minUs, J.maxUs);
+  }
   else if (cmd.startsWith("set") && sscanf(cmd.c_str() + 3, "%7s %15s", name, name + 8) == 2) {
     const char* what = name; const char* nm = name + 8;
     int j = jointArg(nm);
@@ -617,7 +625,7 @@ void parseSerial(String cmd) {
     setJointDeg(j, a);
     Serial.printf("ch%d (%s) → %.0f µs\n", ch, joints[j].name, joints[j].targetUs);
   }
-  else Serial.println("commands: idle wave walk stop rest cal scan save forget | imu [on|off|zero|clear] | lean <deg> | shift <lean> <knee> | gait sway|step|lift|hz <v> | joint <name> <0..1> | us/step <name> <us> | enable/off <name> [us] | setrest/setend/setmin/setmax <name>");
+  else Serial.println("commands: idle wave walk stop rest cal scan save forget | imu [on|off|zero|clear] | lean <deg> | shift <lean> <knee> | gait sway|step|lift|hz <v> | joint <name> <0..1> | us/step <name> <us> | enable/off <name> [us] | limit <name> <min> <max> | setrest/setend/setmin/setmax <name>");
 }
 
 // ══════════════════════════════════════════════
