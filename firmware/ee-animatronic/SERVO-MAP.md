@@ -25,12 +25,17 @@ Head and arms measured by hand on 2026-10-21 with the previous firmware, convert
 | 11 | Right knee | RDS3225 | — | — | — | to calibrate |
 | 12 | Left ankle | RDS3225 | — | — | — | to calibrate |
 | 13 | Right ankle | RDS3225 | — | — | — | to calibrate |
-| 14 | Left wing | SG90 | — | — | — | to calibrate |
-| 15 | Right wing | SG90 | — | — | — | to calibrate |
+| 14 | Right ankle roll | RDS3235 | — | — | — | to calibrate |
+| 15 | Left ankle roll | RDS3235 | — | — | — | to calibrate |
 
 ## PCA9685 #2 (I2C 0x41, solder jumper A0)
 
-Reserved for the elbows (2× MG90S) and anything added later.
+| Ch | Joint | Servo |
+|----|-------|-------|
+| 0 | Left wing | SG90 |
+| 1 | Right wing | SG90 |
+
+Elbows (2× MG90S) and anything added later also go here.
 
 ## How calibration works
 
@@ -54,7 +59,8 @@ Leg order in the current build (top to bottom): hip pitch (DS3218, ch 8/9) → h
 Leg directions (what +µs does, measured 2026-10-24): left hip pitch forward / right backward ·
 left hip roll foot out / right foot in · both knees bend · left ankle toe up / right toe down.
 The firmware turns these into one meaning per joint (hip + = forward, roll + = foot out,
-knee + = bend, ankle + = toe up) with a sign per servo.
+knee + = bend, ankle + = toe up, ankle roll + = outer edge of the sole down) with a sign per servo.
+With the ankle rolls, `lean` slides the pelvis sideways and the ankles roll back by the same angle, so the soles stay flat.
 
 ## Walking
 

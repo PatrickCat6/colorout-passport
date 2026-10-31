@@ -82,6 +82,7 @@ enum JointId {
   L_SHOULDER, L_ARM, R_SHOULDER, R_ARM,
   L_HIP_ROLL, R_HIP_ROLL, L_HIP_PITCH, R_HIP_PITCH,
   L_KNEE, R_KNEE, L_ANKLE, R_ANKLE,
+  R_ANKLE_ROLL, L_ANKLE_ROLL,
   L_WING, R_WING,
   NUM_JOINTS
 };
@@ -106,8 +107,12 @@ Joint joints[NUM_JOINTS] = {
   { "r_knee",        0, 11,  910,   910,   600,  2400,  true  },
   { "l_ankle",       0, 12, 1755,  1755,   600,  2400,  true  },
   { "r_ankle",       0, 13, 1450,  1450,   600,  2400,  true  },
-  { "l_wing",        0, 14, 1500,  1500,   600,  2400,  false },
-  { "r_wing",        0, 15, 1500,  1500,   600,  2400,  false },
+  // Ankle roll (RDS3235): off until calibrated — enable, put the sole flat, setrest, save.
+  { "r_ankle_roll",  0, 14, 1500,  1500,   700,  2300,  false },
+  { "l_ankle_roll",  0, 15, 1500,  1500,   700,  2300,  false },
+  // Wings (SG90) moved to PCA #2 (0x41), channels 0 and 1.
+  { "l_wing",        1,  0, 1500,  1500,   600,  2400,  false },
+  { "r_wing",        1,  1, 1500,  1500,   600,  2400,  false },
 };
 
 // ══════════════════════════════════════════════
@@ -411,6 +416,13 @@ const int8_t SIGN_HP_L = +1, SIGN_HP_R = -1;
 const int8_t SIGN_HR_L = +1, SIGN_HR_R = -1;
 const int8_t SIGN_K_L  = +1, SIGN_K_R  = +1;
 const int8_t SIGN_A_L  = +1, SIGN_A_R  = -1;
+// Ankle roll: one meaning for both feet, + = the OUTER edge of the sole goes down. Signs to confirm with `step`.
+#define AR_US_PER_DEG 11.1f     // RDS3235 180°: 2000 µs / 180°. If yours is 270°, use 7.4.
+const int8_t SIGN_AR_L = +1, SIGN_AR_R = +1;
+void arDeg(uint8_t j, int8_t sign, float deg) {
+  if (!joints[j].enabled) return;
+  setJointUs(j, joints[j].restUs + sign * deg * AR_US_PER_DEG);
+}
 
 void legDeg(uint8_t j, int8_t sign, float deg) {
   if (!joints[j].enabled) return;
@@ -425,10 +437,13 @@ void legPose(bool left, float hipFwd, float knee) {
 }
 
 // Pelvis lean (deg). + = right side down: weight onto the right foot, the left foot lifts.
-// Both legs stay vertical, so the feet stay flat: left foot turns inward, right outward by the same angle.
+// Both legs tilt the same way (the pelvis slides sideways); the ankle rolls keep the soles flat.
 void pelvisLean(float a) {
   legDeg(L_HIP_ROLL, SIGN_HR_L, -a);
   legDeg(R_HIP_ROLL, SIGN_HR_R, +a);
+  // the ankles roll back by the same angle, so both soles stay flat while the pelvis slides sideways
+  arDeg(L_ANKLE_ROLL, SIGN_AR_L, -a);
+  arDeg(R_ANKLE_ROLL, SIGN_AR_R, +a);
 }
 
 // Gait settings, tunable over serial: gait sway|step|lift|hz <value>
@@ -530,7 +545,7 @@ void printCal() {
 void parseSerial(String cmd) {
   cmd.trim();
   char name[24]; float a, b; int ch;
-  if (cmd == "idle")      { currentAnim = ANIM_IDLE; animT = 0; for (uint8_t j = L_HIP_ROLL; j <= R_ANKLE; j++) setJoint(j, 0); }
+  if (cmd == "idle")      { currentAnim = ANIM_IDLE; animT = 0; for (uint8_t j = L_HIP_ROLL; j <= L_ANKLE_ROLL; j++) setJoint(j, 0); }
   else if (cmd == "wave") { currentAnim = ANIM_WAVE; animT = 0; }
   else if (cmd == "walk") { currentAnim = ANIM_WALK; animT = 0; }
   else if (sscanf(cmd.c_str(), "lean %f", &a) == 1) {   // test weight shift: lean 5, lean -5, lean 0
