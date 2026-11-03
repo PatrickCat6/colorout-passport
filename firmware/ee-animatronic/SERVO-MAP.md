@@ -88,6 +88,12 @@ GY-521 upright on the front of the pelvis: chip facing forward, X arrow up (Y th
 pitch + = leans forward, roll + = leans to EE's right. If a direction reads reversed, flip `IMU_PITCH_SIGN` / `IMU_ROLL_SIGN`.
 `scan` now also lists the I2C devices: expect 0x40 (PCA) and 0x68 (IMU).
 
+## Fall guard
+
+When EE tips past the limit (default 40°) for 3 readings in a row, every servo goes limp so the gears don't take the impact.
+It only arms after EE has stood upright (pitch and roll under 15°) for 1 s, so lying on the bench never triggers it.
+`fall` — status · `fall on` / `fall off` · `fall <deg>` — limit (15–80) · `fall reset` — after standing EE back up, turns back on the servos that were on, at rest.
+
 ## OSC (UDP 9000, TouchDesigner)
 
 - `/ee/anim <string>` — idle, wave, walk, stop

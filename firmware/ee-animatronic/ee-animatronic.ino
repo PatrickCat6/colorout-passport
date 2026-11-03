@@ -356,6 +356,7 @@ void imuSetZero(bool clear) {
   Serial.printf("[IMU] zero %s (pitch %.1f° roll %.1f°)\n", clear ? "cleared" : "set to current pose", imuZeroPitch, imuZeroRoll);
 }
 
+
 void i2cScan() {
   Serial.printf("  I2C:");
   int n = 0;
@@ -375,6 +376,41 @@ void i2cScan() {
 
 enum AnimState { ANIM_IDLE, ANIM_WAVE, ANIM_WALK, ANIM_MANUAL };
 AnimState currentAnim = ANIM_IDLE;
+
+// ── FALL GUARD ── when EE tips past fallDeg the servos go limp, so the gears don't take the impact.
+// It only arms after EE has stood upright (both angles < 15°) for 1 s, so lying on the bench never triggers it.
+bool fallGuard = true, fallArmed = false, fallen = false;
+float fallDeg = 40.0f;
+uint32_t fallUprightMs = 0, fallMask = 0;   // fallMask: joints that were on, restored by 'fall reset'
+uint8_t fallCount = 0;
+void fallCheck() {
+  if (!imuOk || !fallGuard) return;
+  bool upright = fabsf(imuPitch) < 15.0f && fabsf(imuRoll) < 15.0f;
+  if (!fallArmed) {
+    if (upright) { if (!fallUprightMs) fallUprightMs = millis(); if (millis() - fallUprightMs > 1000) { fallArmed = true; Serial.println("[FALL] guard armed"); } }
+    else fallUprightMs = 0;
+    return;
+  }
+  if (fabsf(imuPitch) > fallDeg || fabsf(imuRoll) > fallDeg) { if (++fallCount < 3) return; } else { fallCount = 0; return; }
+  fallMask = 0;
+  for (uint8_t j = 0; j < NUM_JOINTS; j++) {
+    if (!joints[j].enabled) continue;
+    fallMask |= (1UL << j);
+    joints[j].enabled = false; joints[j].started = false;
+    pcaOff(joints[j].pca, joints[j].ch);
+  }
+  currentAnim = ANIM_MANUAL;
+  fallen = true; fallArmed = false; fallUprightMs = 0; fallCount = 0;
+  Serial.printf("[FALL] pitch %.0f° roll %.0f° — servos limp. Stand EE up, then 'fall reset'\n", imuPitch, imuRoll);
+}
+void fallReset() {
+  for (uint8_t j = 0; j < NUM_JOINTS; j++) if (fallMask & (1UL << j)) {
+    Joint& J = joints[j]; J.enabled = true; J.started = false; J.targetUs = clampf(J.restUs, J.minUs, J.maxUs);
+  }
+  Serial.printf("[FALL] %d joints back on at rest\n", __builtin_popcount(fallMask));
+  fallMask = 0; fallen = false;
+}
+
 float animT = 0;
 
 void animIdle(float t) {
@@ -571,6 +607,11 @@ void parseSerial(String cmd) {
   else if (cmd == "imu")      imuPrint();
   else if (cmd == "imu on")   { imuStream = true;  Serial.println("[IMU] streaming 5×/s — 'imu off' to stop"); }
   else if (cmd == "imu off")  { imuStream = false; Serial.println("[IMU] stream off"); }
+  else if (cmd == "fall")       Serial.printf("[FALL] guard %s, %s, limit %.0f°%s\n", fallGuard ? "on" : "off", fallArmed ? "armed" : "not armed (stand EE upright 1 s)", fallDeg, fallen ? ", FALLEN" : "");
+  else if (cmd == "fall on")    { fallGuard = true;  Serial.println("[FALL] guard on"); }
+  else if (cmd == "fall off")   { fallGuard = false; fallArmed = false; Serial.println("[FALL] guard off"); }
+  else if (cmd == "fall reset") fallReset();
+  else if (sscanf(cmd.c_str(), "fall %f", &a) == 1) { fallDeg = clampf(a, 15, 80); Serial.printf("[FALL] limit %.0f°\n", fallDeg); }
   else if (cmd == "imu zero") imuSetZero(false);
   else if (cmd == "imu clear") imuSetZero(true);
   else if (cmd == "scan") {
@@ -640,7 +681,7 @@ void parseSerial(String cmd) {
     setJointDeg(j, a);
     Serial.printf("ch%d (%s) → %.0f µs\n", ch, joints[j].name, joints[j].targetUs);
   }
-  else Serial.println("commands: idle wave walk stop rest cal scan save forget | imu [on|off|zero|clear] | lean <deg> | shift <lean> <knee> | gait sway|step|lift|hz <v> | joint <name> <0..1> | us/step <name> <us> | enable/off <name> [us] | limit <name> <min> <max> | setrest/setend/setmin/setmax <name>");
+  else Serial.println("commands: idle wave walk stop rest cal scan save forget | imu [on|off|zero|clear] | fall [on|off|reset|<deg>] | lean <deg> | shift <lean> <knee> | gait sway|step|lift|hz <v> | joint <name> <0..1> | us/step <name> <us> | enable/off <name> [us] | limit <name> <min> <max> | setrest/setend/setmin/setmax <name>");
 }
 
 // ══════════════════════════════════════════════
@@ -742,6 +783,7 @@ void loop() {
 
   sensorsUpdate();
   imuUpdate();
+  fallCheck();
 
   switch (currentAnim) {
     case ANIM_IDLE:   animIdle(animT); break;
